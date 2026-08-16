@@ -161,3 +161,24 @@ class DayPlanRunRow(Base):
     total_penalty: Mapped[int] = mapped_column(Integer, nullable=False)
     wall_time_seconds: Mapped[float] = mapped_column(Float, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class DayPlanEventRow(Base):
+    __tablename__ = "day_plan_events"
+    __table_args__ = (
+        UniqueConstraint("day_plan_id", "version", name="uq_day_plan_event_version"),
+    )
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    day_plan_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("day_plans.id", ondelete="CASCADE"), nullable=False
+    )
+    school_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("schools.id", ondelete="CASCADE"), nullable=False
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    event_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    from_status: Mapped[str] = mapped_column(String(20), nullable=False)
+    to_status: Mapped[str] = mapped_column(String(20), nullable=False)
+    reason: Mapped[str | None] = mapped_column(String(500))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
