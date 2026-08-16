@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from logging.config import fileConfig
 
-from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-from gestor_escuela.persistence.db import Base, database_url
+from alembic import context
 from gestor_escuela.persistence import models as _models  # noqa: F401
+from gestor_escuela.persistence.db import Base, database_url
 
 config = context.config
 config.set_main_option("sqlalchemy.url", database_url())
