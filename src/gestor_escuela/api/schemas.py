@@ -77,6 +77,11 @@ class DayPlanSolveRequest(BaseModel):
     expected_version: int | None = Field(default=None, ge=1)
 
 
+class DayPlanLifecycleRequest(BaseModel):
+    expected_version: int = Field(ge=1)
+    reason: str | None = Field(default=None, max_length=500)
+
+
 class DayPlanCreate(BaseModel):
     school_id: UUID
     plan_date: date
@@ -113,4 +118,18 @@ class DayPlanRunRead(BaseModel):
     score: int
     total_penalty: int
     wall_time_seconds: float
+    created_at: datetime
+
+
+class DayPlanEventRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    day_plan_id: UUID
+    school_id: UUID
+    version: int
+    event_type: str
+    from_status: str
+    to_status: str
+    reason: str | None
     created_at: datetime
