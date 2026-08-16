@@ -9,6 +9,7 @@ from gestor_escuela.domain.models import (
     Absence,
     Activity,
     ActivityType,
+    LockedSubstitution,
     Priority,
     SolverSolution,
     SolverWeights,
@@ -44,6 +45,7 @@ class SchoolDayOptimizer:
         teachers: tuple[Teacher, ...],
         activities: tuple[Activity, ...],
         absences: tuple[Absence, ...],
+        locked_substitutions: tuple[LockedSubstitution, ...] = (),
     ) -> SolverSolution:
         activities_by_teacher_slot = {(a.teacher_id, a.slot_id): a for a in activities}
         absent_slots = {
@@ -81,6 +83,14 @@ class SchoolDayOptimizer:
                 + uncovered_vars[need_index]
                 == 1
             )
+
+        self._apply_locked_substitutions(
+            model=model,
+            needs=needs,
+            candidates_by_need=candidates_by_need,
+            assignment_vars=assignment_vars,
+            locked_substitutions=locked_substitutions,
+        )
 
         by_teacher_slot: dict[tuple[str, str], list[cp_model.IntVar]] = defaultdict(list)
         for need_index, need in enumerate(needs):
@@ -150,6 +160,51 @@ class SchoolDayOptimizer:
             objective_bound=solver.best_objective_bound,
             wall_time_seconds=solver.wall_time,
         )
+
+    @staticmethod
+    def _apply_locked_substitutions(
+        *,
+        model: cp_model.CpModel,
+        needs: tuple[_Need, ...],
+        candidates_by_need: dict[int, tuple[_Candidate, ...]],
+        assignment_vars: dict[tuple[int, str], cp_model.IntVar],
+        locked_substitutions: tuple[LockedSubstitution, ...],
+    ) -> None:
+        need_index_by_activity = {need.activity.id: index for index, need in enumerate(needs)}
+        locked_activities: set[str] = set()
+        locked_teacher_slots: set[tuple[str, str]] = set()
+
+        for locked in locked_substitutions:
+            if locked.activity_id in locked_activities:
+                raise ValueError(
+                    f"La actividad {locked.activity_id} tiene más de una decisión bloqueada."
+                )
+            locked_activities.add(locked.activity_id)
+
+            need_index = need_index_by_activity.get(locked.activity_id)
+            if need_index is None:
+                raise ValueError(
+                    f"La actividad {locked.activity_id} no necesita sustitución en este cálculo."
+                )
+
+            need = needs[need_index]
+            candidate_ids = {
+                candidate.teacher.id for candidate in candidates_by_need[need_index]
+            }
+            if locked.substitute_teacher_id not in candidate_ids:
+                raise ValueError(
+                    f"La decisión bloqueada para {locked.activity_id} no es posible porque "
+                    f"{locked.substitute_teacher_id} no está disponible o no es compatible."
+                )
+
+            teacher_slot = (locked.substitute_teacher_id, need.activity.slot_id)
+            if teacher_slot in locked_teacher_slots:
+                raise ValueError(
+                    f"{locked.substitute_teacher_id} tiene dos decisiones bloqueadas en "
+                    f"{need.activity.slot_id}."
+                )
+            locked_teacher_slots.add(teacher_slot)
+            model.add(assignment_vars[(need_index, locked.substitute_teacher_id)] == 1)
 
     def _candidates_for_need(
         self,
