@@ -21,6 +21,10 @@ def main(iterations: int = 20) -> None:
             Absence("P03", frozenset({"S1", "S2", "S3"})),
             Absence("P05", frozenset({"S1", "S2", "S3"})),
         ),
+        "4 ausencias": tuple(
+            Absence(teacher_id, frozenset({"S3"}))
+            for teacher_id in ("P01", "P02", "P03", "P04")
+        ),
     }
     optimizer = SchoolDayOptimizer()
     for name, absences in scenarios.items():
