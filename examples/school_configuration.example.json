@@ -1,0 +1,29 @@
+{
+  "groups": [
+    {"id": "G1", "label": "1º A"}
+  ],
+  "time_slots": [
+    {"id": "S1", "label": "09:00", "order": 1}
+  ],
+  "teachers": [
+    {
+      "id": "P01",
+      "profile": "TUTOR",
+      "substitution_count": 0,
+      "can_cover_groups": ["G1"],
+      "emergency_only": false
+    }
+  ],
+  "activities": [
+    {
+      "id": "A-S1-G1",
+      "slot_id": "S1",
+      "activity_type": "CLASS",
+      "teacher_id": "P01",
+      "group_id": "G1",
+      "priority": 30,
+      "movable": false,
+      "cancelable": false
+    }
+  ]
+}
