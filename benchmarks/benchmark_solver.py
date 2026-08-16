@@ -4,8 +4,8 @@ from statistics import mean
 from time import perf_counter
 
 from gestor_escuela.domain.models import Absence
-from gestor_escuela.solver.optimizer import SchoolDayOptimizer
 from gestor_escuela.simulation.dataset import build_pilot_dataset
+from gestor_escuela.solver.optimizer import SchoolDayOptimizer
 
 
 def main(iterations: int = 20) -> None:
