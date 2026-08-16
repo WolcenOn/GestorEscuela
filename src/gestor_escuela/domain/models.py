@@ -1,0 +1,129 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from enum import Enum, IntEnum
+
+
+class ActivityType(str, Enum):
+    CLASS = "CLASS"
+    SUPPORT = "SUPPORT"
+    PT = "PT"
+    AL = "AL"
+    COORDINATION = "COORDINATION"
+    RECESS = "RECESS"
+
+
+class Priority(IntEnum):
+    CANCELABLE = 10
+    FLEXIBLE = 20
+    NORMAL = 30
+    HIGH = 40
+    CRITICAL = 50
+
+
+class TeacherProfile(str, Enum):
+    TUTOR = "TUTOR"
+    SPECIALIST = "SPECIALIST"
+    PT = "PT"
+    AL = "AL"
+    SUPPORT = "SUPPORT"
+    MANAGEMENT = "MANAGEMENT"
+
+
+@dataclass(frozen=True, slots=True)
+class TimeSlot:
+    id: str
+    label: str
+    order: int
+
+
+@dataclass(frozen=True, slots=True)
+class Teacher:
+    id: str
+    profile: TeacherProfile
+    substitution_count: int = 0
+    can_cover_groups: frozenset[str] = field(default_factory=frozenset)
+    emergency_only: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class Group:
+    id: str
+    label: str
+
+
+@dataclass(frozen=True, slots=True)
+class Activity:
+    id: str
+    slot_id: str
+    activity_type: ActivityType
+    teacher_id: str
+    group_id: str | None = None
+    priority: Priority = Priority.NORMAL
+    movable: bool = False
+    cancelable: bool = False
+
+    @property
+    def requires_group_coverage(self) -> bool:
+        return self.group_id is not None and self.activity_type == ActivityType.CLASS
+
+
+@dataclass(frozen=True, slots=True)
+class Absence:
+    teacher_id: str
+    slot_ids: frozenset[str]
+
+    def affects(self, slot_id: str) -> bool:
+        return slot_id in self.slot_ids
+
+
+@dataclass(frozen=True, slots=True)
+class Substitution:
+    activity_id: str
+    slot_id: str
+    group_id: str
+    absent_teacher_id: str
+    substitute_teacher_id: str
+    displaced_activity_id: str | None
+    penalty: int
+
+
+@dataclass(frozen=True, slots=True)
+class UncoveredActivity:
+    activity_id: str
+    slot_id: str
+    group_id: str
+    absent_teacher_id: str
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class SolverWeights:
+    uncovered: int = 100_000
+    displacement_flexible: int = 120
+    displacement_normal: int = 800
+    displacement_high: int = 5_000
+    substitution_history: int = 30
+    emergency_teacher: int = 2_000
+    pt_al_displacement_multiplier: int = 5
+
+
+@dataclass(frozen=True, slots=True)
+class SolverSolution:
+    substitutions: tuple[Substitution, ...]
+    uncovered: tuple[UncoveredActivity, ...]
+    total_penalty: int
+    objective_bound: float
+    wall_time_seconds: float
+
+    @property
+    def coverage_ratio(self) -> float:
+        total = len(self.substitutions) + len(self.uncovered)
+        return 1.0 if total == 0 else len(self.substitutions) / total
+
+    @property
+    def score(self) -> int:
+        if self.uncovered:
+            return max(0, round(100 * self.coverage_ratio) - min(20, len(self.uncovered) * 5))
+        impact = min(20, self.total_penalty // 500)
+        return max(0, 100 - impact)
