@@ -11,6 +11,8 @@ from sqlalchemy.orm import Session
 
 from gestor_escuela.api.schemas import (
     DayPlanCreate,
+    DayPlanEventRead,
+    DayPlanLifecycleRequest,
     DayPlanRead,
     DayPlanRunRead,
     DayPlanSolveRequest,
@@ -29,6 +31,7 @@ from gestor_escuela.domain.models import (
 )
 from gestor_escuela.persistence.db import get_session
 from gestor_escuela.persistence.models import (
+    DayPlanEventRow,
     DayPlanRow,
     DayPlanRunRow,
     DayPlanStatus,
@@ -63,6 +66,33 @@ def _require_school(school_id: UUID, session: Session) -> SchoolRow:
     if school is None:
         raise HTTPException(status_code=404, detail="School not found")
     return school
+
+
+def _require_school_day_plan(
+    school_id: UUID,
+    plan_id: UUID,
+    session: Session,
+) -> DayPlanRow:
+    plan = session.scalar(
+        select(DayPlanRow).where(
+            DayPlanRow.id == plan_id,
+            DayPlanRow.school_id == school_id,
+        )
+    )
+    if plan is None:
+        raise HTTPException(status_code=404, detail="Day plan not found for this school")
+    return plan
+
+
+def _validate_expected_version(plan: DayPlanRow, expected_version: int) -> None:
+    if expected_version != plan.version:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Day plan version conflict: "
+                f"expected {expected_version}, current {plan.version}"
+            ),
+        )
 
 
 def _validate_configuration(payload: SchoolConfigurationPut) -> None:
@@ -261,15 +291,7 @@ def get_day_plan(plan_id: UUID, session: SessionDep) -> DayPlanRow:
 
 @app.get("/schools/{school_id}/day-plans/{plan_id}", response_model=DayPlanRead)
 def get_school_day_plan(school_id: UUID, plan_id: UUID, session: SessionDep) -> DayPlanRow:
-    plan = session.scalar(
-        select(DayPlanRow).where(
-            DayPlanRow.id == plan_id,
-            DayPlanRow.school_id == school_id,
-        )
-    )
-    if plan is None:
-        raise HTTPException(status_code=404, detail="Day plan not found for this school")
-    return plan
+    return _require_school_day_plan(school_id, plan_id, session)
 
 
 @app.get("/schools/{school_id}/day-plans", response_model=list[DayPlanRead])
@@ -293,14 +315,7 @@ def list_day_plan_runs(
     plan_id: UUID,
     session: SessionDep,
 ) -> list[DayPlanRunRow]:
-    plan = session.scalar(
-        select(DayPlanRow).where(
-            DayPlanRow.id == plan_id,
-            DayPlanRow.school_id == school_id,
-        )
-    )
-    if plan is None:
-        raise HTTPException(status_code=404, detail="Day plan not found for this school")
+    _require_school_day_plan(school_id, plan_id, session)
     statement = (
         select(DayPlanRunRow)
         .where(
@@ -310,6 +325,108 @@ def list_day_plan_runs(
         .order_by(DayPlanRunRow.version)
     )
     return list(session.scalars(statement).all())
+
+
+@app.get(
+    "/schools/{school_id}/day-plans/{plan_id}/events",
+    response_model=list[DayPlanEventRead],
+)
+def list_day_plan_events(
+    school_id: UUID,
+    plan_id: UUID,
+    session: SessionDep,
+) -> list[DayPlanEventRow]:
+    _require_school_day_plan(school_id, plan_id, session)
+    statement = (
+        select(DayPlanEventRow)
+        .where(
+            DayPlanEventRow.day_plan_id == plan_id,
+            DayPlanEventRow.school_id == school_id,
+        )
+        .order_by(DayPlanEventRow.version)
+    )
+    return list(session.scalars(statement).all())
+
+
+def _change_plan_status(
+    *,
+    plan: DayPlanRow,
+    school_id: UUID,
+    request: DayPlanLifecycleRequest,
+    from_status: DayPlanStatus,
+    to_status: DayPlanStatus,
+    event_type: str,
+    session: Session,
+) -> DayPlanRow:
+    _validate_expected_version(plan, request.expected_version)
+    if plan.status != from_status.value:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Day plan must be {from_status.value} to {event_type.lower()}; "
+                f"current status is {plan.status}"
+            ),
+        )
+
+    next_version = plan.version + 1
+    plan.version = next_version
+    plan.status = to_status.value
+    session.add(
+        DayPlanEventRow(
+            day_plan_id=plan.id,
+            school_id=school_id,
+            version=next_version,
+            event_type=event_type,
+            from_status=from_status.value,
+            to_status=to_status.value,
+            reason=request.reason,
+        )
+    )
+    try:
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        raise HTTPException(status_code=409, detail="Concurrent day plan update detected") from exc
+    session.refresh(plan)
+    return plan
+
+
+@app.post("/schools/{school_id}/day-plans/{plan_id}/confirm", response_model=DayPlanRead)
+def confirm_day_plan(
+    school_id: UUID,
+    plan_id: UUID,
+    request: DayPlanLifecycleRequest,
+    session: SessionDep,
+) -> DayPlanRow:
+    plan = _require_school_day_plan(school_id, plan_id, session)
+    return _change_plan_status(
+        plan=plan,
+        school_id=school_id,
+        request=request,
+        from_status=DayPlanStatus.SOLVED,
+        to_status=DayPlanStatus.CONFIRMED,
+        event_type="CONFIRMED",
+        session=session,
+    )
+
+
+@app.post("/schools/{school_id}/day-plans/{plan_id}/reopen", response_model=DayPlanRead)
+def reopen_day_plan(
+    school_id: UUID,
+    plan_id: UUID,
+    request: DayPlanLifecycleRequest,
+    session: SessionDep,
+) -> DayPlanRow:
+    plan = _require_school_day_plan(school_id, plan_id, session)
+    return _change_plan_status(
+        plan=plan,
+        school_id=school_id,
+        request=request,
+        from_status=DayPlanStatus.CONFIRMED,
+        to_status=DayPlanStatus.SOLVED,
+        event_type="REOPENED",
+        session=session,
+    )
 
 
 def _load_solver_inputs(
@@ -361,22 +478,14 @@ def solve_day_plan(
     request: DayPlanSolveRequest,
     session: SessionDep,
 ) -> DayPlanRow:
-    plan = session.scalar(
-        select(DayPlanRow).where(
-            DayPlanRow.id == plan_id,
-            DayPlanRow.school_id == school_id,
-        )
-    )
-    if plan is None:
-        raise HTTPException(status_code=404, detail="Day plan not found for this school")
-    if request.expected_version is not None and request.expected_version != plan.version:
+    plan = _require_school_day_plan(school_id, plan_id, session)
+    if plan.status == DayPlanStatus.CONFIRMED.value:
         raise HTTPException(
             status_code=409,
-            detail=(
-                "Day plan version conflict: "
-                f"expected {request.expected_version}, current {plan.version}"
-            ),
+            detail="Confirmed day plans must be reopened before recalculation",
         )
+    if request.expected_version is not None:
+        _validate_expected_version(plan, request.expected_version)
 
     absences = tuple(
         Absence(item.teacher_id, frozenset(item.slot_ids)) for item in request.absences
