@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum, IntEnum
+from enum import IntEnum, StrEnum
 
 
-class ActivityType(str, Enum):
+class ActivityType(StrEnum):
     CLASS = "CLASS"
     SUPPORT = "SUPPORT"
     PT = "PT"
@@ -21,7 +21,7 @@ class Priority(IntEnum):
     CRITICAL = 50
 
 
-class TeacherProfile(str, Enum):
+class TeacherProfile(StrEnum):
     TUTOR = "TUTOR"
     SPECIALIST = "SPECIALIST"
     PT = "PT"
