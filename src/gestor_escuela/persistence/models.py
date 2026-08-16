@@ -8,6 +8,7 @@ from sqlalchemy import (
     Boolean,
     Date,
     DateTime,
+    Float,
     ForeignKey,
     Integer,
     String,
@@ -122,6 +123,7 @@ class DayPlanRow(Base):
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default=DayPlanStatus.DRAFT.value
     )
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     source_hash: Mapped[str | None] = mapped_column(String(64))
     notes: Mapped[str | None] = mapped_column(Text)
     payload: Mapped[dict[str, object]] = mapped_column(
@@ -132,3 +134,30 @@ class DayPlanRow(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
     school: Mapped[SchoolRow] = relationship(back_populates="day_plans")
+
+
+class DayPlanRunRow(Base):
+    __tablename__ = "day_plan_runs"
+    __table_args__ = (
+        UniqueConstraint("day_plan_id", "version", name="uq_day_plan_run_version"),
+    )
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    day_plan_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("day_plans.id", ondelete="CASCADE"), nullable=False
+    )
+    school_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("schools.id", ondelete="CASCADE"), nullable=False
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    input_payload: Mapped[dict[str, object]] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql"), nullable=False
+    )
+    output_payload: Mapped[dict[str, object]] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql"), nullable=False
+    )
+    coverage_ratio: Mapped[float] = mapped_column(Float, nullable=False)
+    score: Mapped[int] = mapped_column(Integer, nullable=False)
+    total_penalty: Mapped[int] = mapped_column(Integer, nullable=False)
+    wall_time_seconds: Mapped[float] = mapped_column(Float, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
