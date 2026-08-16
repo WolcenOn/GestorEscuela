@@ -39,7 +39,11 @@ def create_school(client: TestClient, name: str = "CEIP Piloto") -> str:
     return response.json()["id"]
 
 
-def create_plan(client: TestClient, school_id: str, plan_date: str = "2026-09-15") -> dict[str, object]:
+def create_plan(
+    client: TestClient,
+    school_id: str,
+    plan_date: str = "2026-09-15",
+) -> dict[str, object]:
     response = client.post(
         "/day-plans",
         json={"school_id": school_id, "plan_date": plan_date},
