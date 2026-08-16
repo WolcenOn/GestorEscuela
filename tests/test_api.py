@@ -90,6 +90,17 @@ def create_plan(
     return response.json()
 
 
+def solve_once(client: TestClient, school_id: str, plan_id: object, **extra: object):
+    payload: dict[str, object] = {
+        "absences": [{"teacher_id": "P02", "slot_ids": ["S1"]}],
+        **extra,
+    }
+    return client.post(
+        f"/schools/{school_id}/day-plans/{plan_id}/solve",
+        json=payload,
+    )
+
+
 def test_health(client: TestClient) -> None:
     response = client.get("/health")
     assert response.status_code == 200
@@ -110,6 +121,7 @@ def test_create_and_read_day_plan(client: TestClient) -> None:
     assert create_response.status_code == 201
     plan = create_response.json()
     assert plan["status"] == "DRAFT"
+    assert plan["version"] == 1
     assert plan["payload"]["absences"] == ["P02", "P04"]
 
     read_response = client.get(f"/day-plans/{plan['id']}")
@@ -151,10 +163,7 @@ def test_school_configuration_round_trip(client: TestClient) -> None:
 def test_solve_requires_persisted_configuration(client: TestClient) -> None:
     school_id = create_school(client)
     plan = create_plan(client, school_id)
-    response = client.post(
-        f"/schools/{school_id}/day-plans/{plan['id']}/solve",
-        json={"absences": [{"teacher_id": "P02", "slot_ids": ["S1"]}]},
-    )
+    response = solve_once(client, school_id, plan["id"])
     assert response.status_code == 409
     assert "configuration is incomplete" in response.json()["detail"]
 
@@ -169,12 +178,14 @@ def test_solve_day_plan_persists_absences_and_solution(client: TestClient) -> No
             "absences": [
                 {"teacher_id": "P02", "slot_ids": ["S1", "S2"]},
                 {"teacher_id": "P04", "slot_ids": ["S1", "S2"]},
-            ]
+            ],
+            "expected_version": 1,
         },
     )
     assert response.status_code == 200
     solved = response.json()
     assert solved["status"] == "SOLVED"
+    assert solved["version"] == 2
     assert len(solved["payload"]["absences"]) == 2
     assert solved["payload"]["solution"]["coverage_ratio"] == 1.0
     assert len(solved["payload"]["solution"]["substitutions"]) == 4
@@ -188,14 +199,13 @@ def test_recalculation_respects_locked_manual_decision(client: TestClient) -> No
     school_id = create_school(client)
     configure_school(client, school_id)
     plan = create_plan(client, school_id)
-    response = client.post(
-        f"/schools/{school_id}/day-plans/{plan['id']}/solve",
-        json={
-            "absences": [{"teacher_id": "P02", "slot_ids": ["S1"]}],
-            "locked_substitutions": [
-                {"activity_id": "A-S1-G2", "substitute_teacher_id": "P11"}
-            ],
-        },
+    response = solve_once(
+        client,
+        school_id,
+        plan["id"],
+        locked_substitutions=[
+            {"activity_id": "A-S1-G2", "substitute_teacher_id": "P11"}
+        ],
     )
     assert response.status_code == 200
     substitutions = response.json()["payload"]["solution"]["substitutions"]
@@ -206,17 +216,46 @@ def test_invalid_locked_decision_returns_domain_error(client: TestClient) -> Non
     school_id = create_school(client)
     configure_school(client, school_id)
     plan = create_plan(client, school_id)
-    response = client.post(
-        f"/schools/{school_id}/day-plans/{plan['id']}/solve",
-        json={
-            "absences": [{"teacher_id": "P02", "slot_ids": ["S1"]}],
-            "locked_substitutions": [
-                {"activity_id": "A-S1-G2", "substitute_teacher_id": "P07"}
-            ],
-        },
+    response = solve_once(
+        client,
+        school_id,
+        plan["id"],
+        locked_substitutions=[
+            {"activity_id": "A-S1-G2", "substitute_teacher_id": "P07"}
+        ],
     )
     assert response.status_code == 422
     assert "no está disponible o no es compatible" in response.json()["detail"]
+
+
+def test_stale_day_plan_version_is_rejected(client: TestClient) -> None:
+    school_id = create_school(client)
+    configure_school(client, school_id)
+    plan = create_plan(client, school_id)
+    first = solve_once(client, school_id, plan["id"], expected_version=1)
+    assert first.status_code == 200
+    assert first.json()["version"] == 2
+
+    stale = solve_once(client, school_id, plan["id"], expected_version=1)
+    assert stale.status_code == 409
+    assert "version conflict" in stale.json()["detail"]
+
+
+def test_solver_runs_are_audited(client: TestClient) -> None:
+    school_id = create_school(client)
+    configure_school(client, school_id)
+    plan = create_plan(client, school_id)
+    first = solve_once(client, school_id, plan["id"], expected_version=1)
+    assert first.status_code == 200
+    second = solve_once(client, school_id, plan["id"], expected_version=2)
+    assert second.status_code == 200
+
+    response = client.get(f"/schools/{school_id}/day-plans/{plan['id']}/runs")
+    assert response.status_code == 200
+    runs = response.json()
+    assert [item["version"] for item in runs] == [2, 3]
+    assert all(item["coverage_ratio"] == 1.0 for item in runs)
+    assert runs[0]["input_payload"]["absences"][0]["teacher_id"] == "P02"
 
 
 def test_school_scoped_plan_access_is_isolated(client: TestClient) -> None:
@@ -228,8 +267,5 @@ def test_school_scoped_plan_access_is_isolated(client: TestClient) -> None:
     read_response = client.get(f"/schools/{school_b}/day-plans/{plan['id']}")
     assert read_response.status_code == 404
 
-    solve_response = client.post(
-        f"/schools/{school_b}/day-plans/{plan['id']}/solve",
-        json={"absences": [{"teacher_id": "P02", "slot_ids": ["S1"]}]},
-    )
+    solve_response = solve_once(client, school_b, plan["id"])
     assert solve_response.status_code == 404
