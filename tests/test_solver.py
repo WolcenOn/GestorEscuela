@@ -141,6 +141,48 @@ def test_fairness_history_changes_selection() -> None:
     assert solution.substitutions[0].substitute_teacher_id != "P10"
 
 
+def test_empty_compatibility_set_covers_no_groups() -> None:
+    teachers, activities = dataset()
+    incompatible = tuple(
+        Teacher(
+            id=t.id,
+            profile=t.profile,
+            substitution_count=t.substitution_count,
+            can_cover_groups=frozenset() if t.id == "P10" else t.can_cover_groups,
+            emergency_only=t.emergency_only,
+        )
+        for t in teachers
+    )
+    solution = SchoolDayOptimizer().solve(
+        teachers=incompatible,
+        activities=activities,
+        absences=(Absence("P02", frozenset({"S1"})),),
+    )
+    assert all(s.substitute_teacher_id != "P10" for s in solution.substitutions)
+
+
+def test_coverage_is_prioritized_over_extreme_soft_penalty() -> None:
+    teachers, activities = dataset()
+    only_candidate = tuple(
+        Teacher(
+            id=t.id,
+            profile=t.profile,
+            substitution_count=10_000 if t.id == "P10" else t.substitution_count,
+            can_cover_groups=(frozenset({"G2"}) if t.id == "P10" else frozenset()),
+            emergency_only=t.emergency_only,
+        )
+        for t in teachers
+    )
+    solution = SchoolDayOptimizer().solve(
+        teachers=only_candidate,
+        activities=activities,
+        absences=(Absence("P02", frozenset({"S1"})),),
+    )
+    assert not solution.uncovered
+    assert solution.substitutions[0].substitute_teacher_id == "P10"
+    assert solution.substitutions[0].penalty > SolverWeights().uncovered
+
+
 def test_locked_manual_decision_is_respected_on_recalculation() -> None:
     teachers, activities = dataset()
     solution = SchoolDayOptimizer().solve(
