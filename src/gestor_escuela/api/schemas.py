@@ -74,6 +74,7 @@ class LockedSubstitutionInput(BaseModel):
 class DayPlanSolveRequest(BaseModel):
     absences: list[AbsenceInput] = Field(min_length=1)
     locked_substitutions: list[LockedSubstitutionInput] = Field(default_factory=list)
+    expected_version: int | None = Field(default=None, ge=1)
 
 
 class DayPlanCreate(BaseModel):
@@ -91,8 +92,25 @@ class DayPlanRead(BaseModel):
     school_id: UUID
     plan_date: date
     status: str
+    version: int
     source_hash: str | None
     notes: str | None
     payload: dict[str, object]
     created_at: datetime
     updated_at: datetime
+
+
+class DayPlanRunRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    day_plan_id: UUID
+    school_id: UUID
+    version: int
+    input_payload: dict[str, object]
+    output_payload: dict[str, object]
+    coverage_ratio: float
+    score: int
+    total_penalty: int
+    wall_time_seconds: float
+    created_at: datetime
