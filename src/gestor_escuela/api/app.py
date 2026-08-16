@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from gestor_escuela.api.schemas import (
     DayPlanCreate,
     DayPlanRead,
+    DayPlanRunRead,
     DayPlanSolveRequest,
     SchoolConfigurationPut,
     SchoolCreate,
@@ -29,6 +30,7 @@ from gestor_escuela.domain.models import (
 from gestor_escuela.persistence.db import get_session
 from gestor_escuela.persistence.models import (
     DayPlanRow,
+    DayPlanRunRow,
     DayPlanStatus,
     SchoolActivityRow,
     SchoolGroupRow,
@@ -279,6 +281,34 @@ def list_day_plans(
     return list(session.scalars(statement.order_by(DayPlanRow.plan_date)).all())
 
 
+@app.get(
+    "/schools/{school_id}/day-plans/{plan_id}/runs",
+    response_model=list[DayPlanRunRead],
+)
+def list_day_plan_runs(
+    school_id: UUID,
+    plan_id: UUID,
+    session: SessionDep,
+) -> list[DayPlanRunRow]:
+    plan = session.scalar(
+        select(DayPlanRow).where(
+            DayPlanRow.id == plan_id,
+            DayPlanRow.school_id == school_id,
+        )
+    )
+    if plan is None:
+        raise HTTPException(status_code=404, detail="Day plan not found for this school")
+    statement = (
+        select(DayPlanRunRow)
+        .where(
+            DayPlanRunRow.day_plan_id == plan_id,
+            DayPlanRunRow.school_id == school_id,
+        )
+        .order_by(DayPlanRunRow.version)
+    )
+    return list(session.scalars(statement).all())
+
+
 def _load_solver_inputs(
     school_id: UUID,
     session: Session,
@@ -336,6 +366,11 @@ def solve_day_plan(
     )
     if plan is None:
         raise HTTPException(status_code=404, detail="Day plan not found for this school")
+    if request.expected_version is not None and request.expected_version != plan.version:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Day plan version conflict: expected {request.expected_version}, current {plan.version}",
+        )
 
     absences = tuple(
         Absence(item.teacher_id, frozenset(item.slot_ids)) for item in request.absences
@@ -355,9 +390,7 @@ def solve_day_plan(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    plan.status = DayPlanStatus.SOLVED.value
-    plan.payload = {
-        **plan.payload,
+    input_payload: dict[str, object] = {
         "absences": [
             {"teacher_id": item.teacher_id, "slot_ids": sorted(item.slot_ids)}
             for item in absences
@@ -369,35 +402,61 @@ def solve_day_plan(
             }
             for item in locked
         ],
-        "solution": {
-            "coverage_ratio": solution.coverage_ratio,
-            "score": solution.score,
-            "total_penalty": solution.total_penalty,
-            "wall_time_seconds": solution.wall_time_seconds,
-            "substitutions": [
-                {
-                    "activity_id": item.activity_id,
-                    "slot_id": item.slot_id,
-                    "group_id": item.group_id,
-                    "absent_teacher_id": item.absent_teacher_id,
-                    "substitute_teacher_id": item.substitute_teacher_id,
-                    "displaced_activity_id": item.displaced_activity_id,
-                    "penalty": item.penalty,
-                }
-                for item in solution.substitutions
-            ],
-            "uncovered": [
-                {
-                    "activity_id": item.activity_id,
-                    "slot_id": item.slot_id,
-                    "group_id": item.group_id,
-                    "absent_teacher_id": item.absent_teacher_id,
-                    "reason": item.reason,
-                }
-                for item in solution.uncovered
-            ],
-        },
     }
-    session.commit()
+    output_payload: dict[str, object] = {
+        "coverage_ratio": solution.coverage_ratio,
+        "score": solution.score,
+        "total_penalty": solution.total_penalty,
+        "wall_time_seconds": solution.wall_time_seconds,
+        "substitutions": [
+            {
+                "activity_id": item.activity_id,
+                "slot_id": item.slot_id,
+                "group_id": item.group_id,
+                "absent_teacher_id": item.absent_teacher_id,
+                "substitute_teacher_id": item.substitute_teacher_id,
+                "displaced_activity_id": item.displaced_activity_id,
+                "penalty": item.penalty,
+            }
+            for item in solution.substitutions
+        ],
+        "uncovered": [
+            {
+                "activity_id": item.activity_id,
+                "slot_id": item.slot_id,
+                "group_id": item.group_id,
+                "absent_teacher_id": item.absent_teacher_id,
+                "reason": item.reason,
+            }
+            for item in solution.uncovered
+        ],
+    }
+
+    next_version = plan.version + 1
+    plan.version = next_version
+    plan.status = DayPlanStatus.SOLVED.value
+    plan.payload = {
+        **plan.payload,
+        **input_payload,
+        "solution": output_payload,
+    }
+    session.add(
+        DayPlanRunRow(
+            day_plan_id=plan.id,
+            school_id=school_id,
+            version=next_version,
+            input_payload=input_payload,
+            output_payload=output_payload,
+            coverage_ratio=solution.coverage_ratio,
+            score=solution.score,
+            total_penalty=solution.total_penalty,
+            wall_time_seconds=solution.wall_time_seconds,
+        )
+    )
+    try:
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        raise HTTPException(status_code=409, detail="Concurrent day plan update detected") from exc
     session.refresh(plan)
     return plan
