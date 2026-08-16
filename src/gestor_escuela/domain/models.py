@@ -78,6 +78,14 @@ class Absence:
 
 
 @dataclass(frozen=True, slots=True)
+class LockedSubstitution:
+    """Manual substitution decision that must survive solver recalculation."""
+
+    activity_id: str
+    substitute_teacher_id: str
+
+
+@dataclass(frozen=True, slots=True)
 class Substitution:
     activity_id: str
     slot_id: str
