@@ -18,6 +18,21 @@ class SchoolRead(BaseModel):
     created_at: datetime
 
 
+class AbsenceInput(BaseModel):
+    teacher_id: str = Field(min_length=1)
+    slot_ids: set[str] = Field(min_length=1)
+
+
+class LockedSubstitutionInput(BaseModel):
+    activity_id: str = Field(min_length=1)
+    substitute_teacher_id: str = Field(min_length=1)
+
+
+class DayPlanSolveRequest(BaseModel):
+    absences: list[AbsenceInput] = Field(min_length=1)
+    locked_substitutions: list[LockedSubstitutionInput] = Field(default_factory=list)
+
+
 class DayPlanCreate(BaseModel):
     school_id: UUID
     plan_date: date
