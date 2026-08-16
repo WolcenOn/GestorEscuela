@@ -124,6 +124,10 @@ class DayPlanRow(Base):
         String(20), nullable=False, default=DayPlanStatus.DRAFT.value
     )
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    __mapper_args__ = {
+        "version_id_col": version,
+        "version_id_generator": False,
+    }
     source_hash: Mapped[str | None] = mapped_column(String(64))
     notes: Mapped[str | None] = mapped_column(Text)
     payload: Mapped[dict[str, object]] = mapped_column(
