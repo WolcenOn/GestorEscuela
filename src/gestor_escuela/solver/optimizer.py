@@ -101,18 +101,29 @@ class SchoolDayOptimizer:
         for variables in by_teacher_slot.values():
             model.add(sum(variables) <= 1)
 
-        objective_terms: list[cp_model.LinearExpr] = []
-        for need_index, candidates in candidates_by_need.items():
-            objective_terms.append(uncovered_vars[need_index] * self.weights.uncovered)
-            for candidate in candidates:
-                objective_terms.append(
-                    assignment_vars[(need_index, candidate.teacher.id)] * candidate.penalty
-                )
-        model.minimize(sum(objective_terms))
-
         solver = cp_model.CpSolver()
         solver.parameters.max_time_in_seconds = self.max_time_seconds
         solver.parameters.num_search_workers = 1
+
+        # Coverage is lexicographically dominant: first minimize uncovered classes,
+        # then optimize pedagogical/fairness penalties among solutions with that coverage.
+        uncovered_total = sum(uncovered_vars.values())
+        model.minimize(uncovered_total)
+        status = solver.solve(model)
+        if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+            raise RuntimeError(f"Unexpected CP-SAT status: {solver.status_name(status)}")
+
+        minimum_uncovered = round(solver.objective_value)
+        model.add(uncovered_total == minimum_uncovered)
+
+        soft_terms: list[cp_model.LinearExpr] = []
+        for need_index, candidates in candidates_by_need.items():
+            for candidate in candidates:
+                soft_terms.append(
+                    assignment_vars[(need_index, candidate.teacher.id)] * candidate.penalty
+                )
+        model.minimize(sum(soft_terms))
+
         status = solver.solve(model)
         if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
             raise RuntimeError(f"Unexpected CP-SAT status: {solver.status_name(status)}")
@@ -133,7 +144,7 @@ class SchoolDayOptimizer:
                         group_id=need.activity.group_id or "",
                         absent_teacher_id=need.absent_teacher_id,
                         reason=(
-                            "No existe ningún docente compatible disponible sin violar "
+                            "No existe cobertura simultánea compatible sin violar "
                             "restricciones duras."
                         ),
                     )
@@ -153,11 +164,15 @@ class SchoolDayOptimizer:
                 )
             )
 
+        soft_penalty = sum(item.penalty for item in substitutions)
+        total_penalty = soft_penalty + len(uncovered) * self.weights.uncovered
+        objective_bound = solver.best_objective_bound + len(uncovered) * self.weights.uncovered
+
         return SolverSolution(
             substitutions=tuple(substitutions),
             uncovered=tuple(uncovered),
-            total_penalty=round(solver.objective_value),
-            objective_bound=solver.best_objective_bound,
+            total_penalty=total_penalty,
+            objective_bound=objective_bound,
             wall_time_seconds=solver.wall_time,
         )
 
@@ -224,7 +239,7 @@ class SchoolDayOptimizer:
                 continue
             if (teacher.id, need.activity.slot_id) in absent_slots:
                 continue
-            if teacher.can_cover_groups and group_id not in teacher.can_cover_groups:
+            if group_id not in teacher.can_cover_groups:
                 continue
 
             current = activities_by_teacher_slot.get((teacher.id, need.activity.slot_id))
