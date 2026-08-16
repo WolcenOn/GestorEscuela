@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import Annotated
 from uuid import UUID
 
 from fastapi import Depends, FastAPI, HTTPException, status
@@ -13,6 +14,7 @@ from gestor_escuela.persistence.db import get_session
 from gestor_escuela.persistence.models import DayPlanRow, SchoolRow
 
 app = FastAPI(title="GestorEscuela API", version="0.2.0")
+SessionDep = Annotated[Session, Depends(get_session)]
 
 
 @app.get("/health")
@@ -21,7 +23,7 @@ def health() -> dict[str, str]:
 
 
 @app.post("/schools", response_model=SchoolRead, status_code=status.HTTP_201_CREATED)
-def create_school(payload: SchoolCreate, session: Session = Depends(get_session)) -> SchoolRow:
+def create_school(payload: SchoolCreate, session: SessionDep) -> SchoolRow:
     school = SchoolRow(name=payload.name)
     session.add(school)
     session.commit()
@@ -30,7 +32,7 @@ def create_school(payload: SchoolCreate, session: Session = Depends(get_session)
 
 
 @app.post("/day-plans", response_model=DayPlanRead, status_code=status.HTTP_201_CREATED)
-def create_day_plan(payload: DayPlanCreate, session: Session = Depends(get_session)) -> DayPlanRow:
+def create_day_plan(payload: DayPlanCreate, session: SessionDep) -> DayPlanRow:
     if session.get(SchoolRow, payload.school_id) is None:
         raise HTTPException(status_code=404, detail="School not found")
 
@@ -55,7 +57,7 @@ def create_day_plan(payload: DayPlanCreate, session: Session = Depends(get_sessi
 
 
 @app.get("/day-plans/{plan_id}", response_model=DayPlanRead)
-def get_day_plan(plan_id: UUID, session: Session = Depends(get_session)) -> DayPlanRow:
+def get_day_plan(plan_id: UUID, session: SessionDep) -> DayPlanRow:
     plan = session.get(DayPlanRow, plan_id)
     if plan is None:
         raise HTTPException(status_code=404, detail="Day plan not found")
@@ -65,8 +67,8 @@ def get_day_plan(plan_id: UUID, session: Session = Depends(get_session)) -> DayP
 @app.get("/schools/{school_id}/day-plans", response_model=list[DayPlanRead])
 def list_day_plans(
     school_id: UUID,
+    session: SessionDep,
     plan_date: date | None = None,
-    session: Session = Depends(get_session),
 ) -> list[DayPlanRow]:
     statement = select(DayPlanRow).where(DayPlanRow.school_id == school_id)
     if plan_date is not None:
