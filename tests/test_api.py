@@ -258,6 +258,72 @@ def test_solver_runs_are_audited(client: TestClient) -> None:
     assert runs[0]["input_payload"]["absences"][0]["teacher_id"] == "P02"
 
 
+def test_draft_plan_cannot_be_confirmed(client: TestClient) -> None:
+    school_id = create_school(client)
+    plan = create_plan(client, school_id)
+    response = client.post(
+        f"/schools/{school_id}/day-plans/{plan['id']}/confirm",
+        json={"expected_version": 1},
+    )
+    assert response.status_code == 409
+    assert "must be SOLVED" in response.json()["detail"]
+
+
+def test_confirmed_plan_blocks_recalculation_until_reopened(client: TestClient) -> None:
+    school_id = create_school(client)
+    configure_school(client, school_id)
+    plan = create_plan(client, school_id)
+    solved = solve_once(client, school_id, plan["id"], expected_version=1)
+    assert solved.status_code == 200
+
+    confirmed = client.post(
+        f"/schools/{school_id}/day-plans/{plan['id']}/confirm",
+        json={"expected_version": 2, "reason": "Validado por jefatura"},
+    )
+    assert confirmed.status_code == 200
+    assert confirmed.json()["status"] == "CONFIRMED"
+    assert confirmed.json()["version"] == 3
+
+    blocked = solve_once(client, school_id, plan["id"], expected_version=3)
+    assert blocked.status_code == 409
+    assert "must be reopened" in blocked.json()["detail"]
+
+    reopened = client.post(
+        f"/schools/{school_id}/day-plans/{plan['id']}/reopen",
+        json={"expected_version": 3, "reason": "Nueva ausencia sobrevenida"},
+    )
+    assert reopened.status_code == 200
+    assert reopened.json()["status"] == "SOLVED"
+    assert reopened.json()["version"] == 4
+
+    recalculated = solve_once(client, school_id, plan["id"], expected_version=4)
+    assert recalculated.status_code == 200
+    assert recalculated.json()["version"] == 5
+
+
+def test_lifecycle_events_are_audited(client: TestClient) -> None:
+    school_id = create_school(client)
+    configure_school(client, school_id)
+    plan = create_plan(client, school_id)
+    assert solve_once(client, school_id, plan["id"], expected_version=1).status_code == 200
+
+    assert client.post(
+        f"/schools/{school_id}/day-plans/{plan['id']}/confirm",
+        json={"expected_version": 2, "reason": "Plan definitivo"},
+    ).status_code == 200
+    assert client.post(
+        f"/schools/{school_id}/day-plans/{plan['id']}/reopen",
+        json={"expected_version": 3, "reason": "Incidencia de última hora"},
+    ).status_code == 200
+
+    response = client.get(f"/schools/{school_id}/day-plans/{plan['id']}/events")
+    assert response.status_code == 200
+    events = response.json()
+    assert [item["event_type"] for item in events] == ["CONFIRMED", "REOPENED"]
+    assert [item["version"] for item in events] == [3, 4]
+    assert events[0]["reason"] == "Plan definitivo"
+
+
 def test_school_scoped_plan_access_is_isolated(client: TestClient) -> None:
     school_a = create_school(client, "CEIP A")
     school_b = create_school(client, "CEIP B")
