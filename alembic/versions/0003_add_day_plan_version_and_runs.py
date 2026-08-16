@@ -35,7 +35,12 @@ def upgrade() -> None:
         sa.Column("score", sa.Integer(), nullable=False),
         sa.Column("total_penalty", sa.Integer(), nullable=False),
         sa.Column("wall_time_seconds", sa.Float(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
         sa.ForeignKeyConstraint(["day_plan_id"], ["day_plans.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["school_id"], ["schools.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
