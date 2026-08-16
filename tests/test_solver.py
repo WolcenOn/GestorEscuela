@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from gestor_escuela.domain.models import Absence, SolverWeights, Teacher
-from gestor_escuela.solver.optimizer import SchoolDayOptimizer
 from gestor_escuela.simulation.dataset import build_pilot_dataset
+from gestor_escuela.solver.optimizer import SchoolDayOptimizer
 
 
 def dataset():
