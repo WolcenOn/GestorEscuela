@@ -1,7 +1,7 @@
 from gestor_escuela.domain.models import Absence
+from gestor_escuela.simulation.dataset import build_pilot_dataset
 from gestor_escuela.solver.explanations import explain_solution
 from gestor_escuela.solver.optimizer import SchoolDayOptimizer
-from gestor_escuela.simulation.dataset import build_pilot_dataset
 
 
 def test_explanation_uses_domain_language() -> None:
