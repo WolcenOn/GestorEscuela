@@ -122,7 +122,10 @@ class SchoolDayOptimizer:
                         slot_id=need.activity.slot_id,
                         group_id=need.activity.group_id or "",
                         absent_teacher_id=need.absent_teacher_id,
-                        reason="No existe ningún docente compatible disponible sin violar restricciones duras.",
+                        reason=(
+                            "No existe ningún docente compatible disponible sin violar "
+                            "restricciones duras."
+                        ),
                     )
                 )
                 continue
