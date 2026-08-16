@@ -171,7 +171,10 @@ def put_school_configuration(
         session.commit()
     except IntegrityError as exc:
         session.rollback()
-        raise HTTPException(status_code=409, detail="Invalid or duplicate school configuration") from exc
+        raise HTTPException(
+            status_code=409,
+            detail="Invalid or duplicate school configuration",
+        ) from exc
     return {"school_id": school_id, "status": "configured"}
 
 
@@ -369,7 +372,10 @@ def solve_day_plan(
     if request.expected_version is not None and request.expected_version != plan.version:
         raise HTTPException(
             status_code=409,
-            detail=f"Day plan version conflict: expected {request.expected_version}, current {plan.version}",
+            detail=(
+                "Day plan version conflict: "
+                f"expected {request.expected_version}, current {plan.version}"
+            ),
         )
 
     absences = tuple(
