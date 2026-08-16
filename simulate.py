@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+from gestor_escuela.simulation.dataset import build_pilot_dataset, demo_absences
 from gestor_escuela.solver.explanations import explain_solution
 from gestor_escuela.solver.optimizer import SchoolDayOptimizer
-from gestor_escuela.simulation.dataset import build_pilot_dataset, demo_absences
 
 
 def main() -> None:
@@ -42,8 +42,12 @@ def main() -> None:
         print(f"⚠ {len(solution.uncovered)} actividades obligatorias sin cubrir")
     pt_al_displaced = sum(
         1
-        for s in solution.substitutions
-        if s.displaced_activity_id and ("P07" in s.displaced_activity_id or "P08" in s.displaced_activity_id)
+        for substitution in solution.substitutions
+        if substitution.displaced_activity_id
+        and (
+            "P07" in substitution.displaced_activity_id
+            or "P08" in substitution.displaced_activity_id
+        )
     )
     print(f"{'✓' if pt_al_displaced == 0 else '⚠'} PT/AL desplazados: {pt_al_displaced}")
     print(f"Penalización total: {solution.total_penalty}")
