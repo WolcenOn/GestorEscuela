@@ -10,6 +10,7 @@ from sqlalchemy.pool import StaticPool
 
 from gestor_escuela.api.app import app
 from gestor_escuela.persistence.db import Base, get_session
+from gestor_escuela.simulation.dataset import build_pilot_dataset
 
 
 @pytest.fixture
@@ -39,6 +40,43 @@ def create_school(client: TestClient, name: str = "CEIP Piloto") -> str:
     return response.json()["id"]
 
 
+def configure_school(client: TestClient, school_id: str) -> None:
+    teachers, groups, slots, activities = build_pilot_dataset()
+    response = client.put(
+        f"/schools/{school_id}/configuration",
+        json={
+            "groups": [{"id": item.id, "label": item.label} for item in groups],
+            "time_slots": [
+                {"id": item.id, "label": item.label, "order": item.order} for item in slots
+            ],
+            "teachers": [
+                {
+                    "id": item.id,
+                    "profile": item.profile.value,
+                    "substitution_count": item.substitution_count,
+                    "can_cover_groups": sorted(item.can_cover_groups),
+                    "emergency_only": item.emergency_only,
+                }
+                for item in teachers
+            ],
+            "activities": [
+                {
+                    "id": item.id,
+                    "slot_id": item.slot_id,
+                    "activity_type": item.activity_type.value,
+                    "teacher_id": item.teacher_id,
+                    "group_id": item.group_id,
+                    "priority": int(item.priority),
+                    "movable": item.movable,
+                    "cancelable": item.cancelable,
+                }
+                for item in activities
+            ],
+        },
+    )
+    assert response.status_code == 200
+
+
 def create_plan(
     client: TestClient,
     school_id: str,
@@ -60,7 +98,6 @@ def test_health(client: TestClient) -> None:
 
 def test_create_and_read_day_plan(client: TestClient) -> None:
     school_id = create_school(client)
-
     create_response = client.post(
         "/day-plans",
         json={
@@ -83,7 +120,6 @@ def test_create_and_read_day_plan(client: TestClient) -> None:
 def test_day_plan_is_unique_per_school_and_date(client: TestClient) -> None:
     school_id = create_school(client)
     payload = {"school_id": school_id, "plan_date": "2026-09-15"}
-
     assert client.post("/day-plans", json=payload).status_code == 201
     duplicate = client.post("/day-plans", json=payload)
     assert duplicate.status_code == 409
@@ -100,10 +136,33 @@ def test_unknown_school_is_rejected(client: TestClient) -> None:
     assert response.status_code == 404
 
 
-def test_solve_day_plan_persists_absences_and_solution(client: TestClient) -> None:
+def test_school_configuration_round_trip(client: TestClient) -> None:
+    school_id = create_school(client)
+    configure_school(client, school_id)
+    response = client.get(f"/schools/{school_id}/configuration")
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload["groups"]) == 6
+    assert len(payload["teachers"]) == 12
+    assert len(payload["time_slots"]) == 6
+    assert payload["activities"]
+
+
+def test_solve_requires_persisted_configuration(client: TestClient) -> None:
     school_id = create_school(client)
     plan = create_plan(client, school_id)
+    response = client.post(
+        f"/schools/{school_id}/day-plans/{plan['id']}/solve",
+        json={"absences": [{"teacher_id": "P02", "slot_ids": ["S1"]}]},
+    )
+    assert response.status_code == 409
+    assert "configuration is incomplete" in response.json()["detail"]
 
+
+def test_solve_day_plan_persists_absences_and_solution(client: TestClient) -> None:
+    school_id = create_school(client)
+    configure_school(client, school_id)
+    plan = create_plan(client, school_id)
     response = client.post(
         f"/schools/{school_id}/day-plans/{plan['id']}/solve",
         json={
@@ -127,8 +186,8 @@ def test_solve_day_plan_persists_absences_and_solution(client: TestClient) -> No
 
 def test_recalculation_respects_locked_manual_decision(client: TestClient) -> None:
     school_id = create_school(client)
+    configure_school(client, school_id)
     plan = create_plan(client, school_id)
-
     response = client.post(
         f"/schools/{school_id}/day-plans/{plan['id']}/solve",
         json={
@@ -145,8 +204,8 @@ def test_recalculation_respects_locked_manual_decision(client: TestClient) -> No
 
 def test_invalid_locked_decision_returns_domain_error(client: TestClient) -> None:
     school_id = create_school(client)
+    configure_school(client, school_id)
     plan = create_plan(client, school_id)
-
     response = client.post(
         f"/schools/{school_id}/day-plans/{plan['id']}/solve",
         json={
@@ -163,6 +222,7 @@ def test_invalid_locked_decision_returns_domain_error(client: TestClient) -> Non
 def test_school_scoped_plan_access_is_isolated(client: TestClient) -> None:
     school_a = create_school(client, "CEIP A")
     school_b = create_school(client, "CEIP B")
+    configure_school(client, school_a)
     plan = create_plan(client, school_a)
 
     read_response = client.get(f"/schools/{school_b}/day-plans/{plan['id']}")
