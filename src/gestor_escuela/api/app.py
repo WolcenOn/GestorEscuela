@@ -537,6 +537,22 @@ def solve_day_plan(
             }
             for item in solution.uncovered
         ],
+        "candidate_assessments": [
+            {
+                "activity_id": item.activity_id,
+                "slot_id": item.slot_id,
+                "group_id": item.group_id,
+                "teacher_id": item.teacher_id,
+                "status": item.status.value,
+                "penalty": item.penalty,
+                "displaced_activity_id": item.displaced_activity_id,
+                "rejection_reason": (
+                    item.rejection_reason.value if item.rejection_reason is not None else None
+                ),
+                "detail": item.detail,
+            }
+            for item in solution.candidate_assessments
+        ],
     }
 
     next_version = plan.version + 1
