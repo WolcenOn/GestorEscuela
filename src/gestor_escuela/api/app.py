@@ -13,7 +13,6 @@ from sqlalchemy.orm.exc import StaleDataError
 from gestor_escuela.api.auth import AdminDep, PlannerDep, ViewerDep
 from gestor_escuela.api.management import router as management_router
 from gestor_escuela.api.schemas import (
-    DayPlanCreate,
     DayPlanEventRead,
     DayPlanLifecycleRequest,
     DayPlanRead,
@@ -265,29 +264,6 @@ def get_school_configuration(
             for item in activities
         ],
     }
-
-
-@app.post("/day-plans", response_model=DayPlanRead, status_code=status.HTTP_201_CREATED)
-def create_day_plan(payload: DayPlanCreate, session: SessionDep, _actor: PlannerDep) -> DayPlanRow:
-    _require_school(payload.school_id, session)
-    plan = DayPlanRow(
-        school_id=payload.school_id,
-        plan_date=payload.plan_date,
-        source_hash=payload.source_hash,
-        notes=payload.notes,
-        payload=payload.payload,
-    )
-    session.add(plan)
-    try:
-        session.commit()
-    except IntegrityError as exc:
-        session.rollback()
-        raise HTTPException(
-            status_code=409,
-            detail="A day plan already exists for this school and date",
-        ) from exc
-    session.refresh(plan)
-    return plan
 
 
 @app.get("/schools/{school_id}/day-plans/{plan_id}", response_model=DayPlanRead)
