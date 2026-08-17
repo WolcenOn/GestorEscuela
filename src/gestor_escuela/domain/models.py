@@ -58,6 +58,8 @@ class Teacher:
     substitution_count: int = 0
     can_cover_groups: frozenset[str] = field(default_factory=frozenset)
     emergency_only: bool = False
+    substitutions_last_7_days: int = 0
+    substitutions_last_30_days: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,6 +113,25 @@ class Substitution:
 
 
 @dataclass(frozen=True, slots=True)
+class CandidatePenaltyBreakdown:
+    historical_total: int = 0
+    recent_7_days: int = 0
+    recent_30_days: int = 0
+    emergency: int = 0
+    displacement: int = 0
+
+    @property
+    def total(self) -> int:
+        return (
+            self.historical_total
+            + self.recent_7_days
+            + self.recent_30_days
+            + self.emergency
+            + self.displacement
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class CandidateAssessment:
     activity_id: str
     slot_id: str
@@ -118,6 +139,7 @@ class CandidateAssessment:
     teacher_id: str
     status: CandidateStatus
     penalty: int | None = None
+    penalty_breakdown: CandidatePenaltyBreakdown | None = None
     displaced_activity_id: str | None = None
     rejection_reason: CandidateRejectionReason | None = None
     detail: str | None = None
@@ -139,6 +161,8 @@ class SolverWeights:
     displacement_normal: int = 800
     displacement_high: int = 5_000
     substitution_history: int = 30
+    recent_substitution_7_days: int = 120
+    recent_substitution_30_days: int = 30
     emergency_teacher: int = 2_000
     pt_al_displacement_multiplier: int = 5
 
