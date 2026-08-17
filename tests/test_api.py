@@ -28,7 +28,7 @@ def client() -> Generator[TestClient, None, None]:
             yield session
 
     app.dependency_overrides[get_session] = override_session
-    with TestClient(app) as test_client:
+    with TestClient(app, headers={"X-Actor-Role": "ADMIN"}) as test_client:
         yield test_client
     app.dependency_overrides.clear()
     Base.metadata.drop_all(engine)
@@ -83,8 +83,8 @@ def create_plan(
     plan_date: str = "2026-09-15",
 ) -> dict[str, object]:
     response = client.post(
-        "/day-plans",
-        json={"school_id": school_id, "plan_date": plan_date},
+        f"/schools/{school_id}/day-plans",
+        json={"plan_date": plan_date},
     )
     assert response.status_code == 201
     return response.json()
@@ -110,9 +110,8 @@ def test_health(client: TestClient) -> None:
 def test_create_and_read_day_plan(client: TestClient) -> None:
     school_id = create_school(client)
     create_response = client.post(
-        "/day-plans",
+        f"/schools/{school_id}/day-plans",
         json={
-            "school_id": school_id,
             "plan_date": "2026-09-15",
             "source_hash": "abc123",
             "payload": {"absences": ["P02", "P04"]},
@@ -124,26 +123,25 @@ def test_create_and_read_day_plan(client: TestClient) -> None:
     assert plan["version"] == 1
     assert plan["payload"]["absences"] == ["P02", "P04"]
 
-    read_response = client.get(f"/day-plans/{plan['id']}")
+    read_response = client.get(f"/schools/{school_id}/day-plans/{plan['id']}")
     assert read_response.status_code == 200
     assert read_response.json()["school_id"] == school_id
 
 
 def test_day_plan_is_unique_per_school_and_date(client: TestClient) -> None:
     school_id = create_school(client)
-    payload = {"school_id": school_id, "plan_date": "2026-09-15"}
-    assert client.post("/day-plans", json=payload).status_code == 201
-    duplicate = client.post("/day-plans", json=payload)
+    payload = {"plan_date": "2026-09-15"}
+    endpoint = f"/schools/{school_id}/day-plans"
+    assert client.post(endpoint, json=payload).status_code == 201
+    duplicate = client.post(endpoint, json=payload)
     assert duplicate.status_code == 409
 
 
 def test_unknown_school_is_rejected(client: TestClient) -> None:
+    school_id = "00000000-0000-0000-0000-000000000001"
     response = client.post(
-        "/day-plans",
-        json={
-            "school_id": "00000000-0000-0000-0000-000000000001",
-            "plan_date": "2026-09-15",
-        },
+        f"/schools/{school_id}/day-plans",
+        json={"plan_date": "2026-09-15"},
     )
     assert response.status_code == 404
 
@@ -335,3 +333,65 @@ def test_school_scoped_plan_access_is_isolated(client: TestClient) -> None:
 
     solve_response = solve_once(client, school_b, plan["id"])
     assert solve_response.status_code == 404
+
+
+def test_viewer_can_read_but_cannot_change_configuration(client: TestClient) -> None:
+    school_id = create_school(client)
+    configure_school(client, school_id)
+
+    readable = client.get(
+        f"/schools/{school_id}/configuration",
+        headers={"X-Actor-Role": "VIEWER"},
+    )
+    assert readable.status_code == 200
+
+    forbidden = client.put(
+        f"/schools/{school_id}/configuration",
+        json=readable.json(),
+        headers={"X-Actor-Role": "VIEWER"},
+    )
+    assert forbidden.status_code == 403
+    assert "ADMIN role required" in forbidden.json()["detail"]
+
+
+def test_viewer_cannot_solve_day_plan(client: TestClient) -> None:
+    school_id = create_school(client)
+    configure_school(client, school_id)
+    plan = create_plan(client, school_id)
+
+    response = client.post(
+        f"/schools/{school_id}/day-plans/{plan['id']}/solve",
+        json={"absences": [{"teacher_id": "P02", "slot_ids": ["S1"]}]},
+        headers={"X-Actor-Role": "VIEWER"},
+    )
+    assert response.status_code == 403
+    assert "PLANNER or ADMIN role required" in response.json()["detail"]
+
+
+def test_planner_cannot_reconfigure_or_reopen(client: TestClient) -> None:
+    school_id = create_school(client)
+    configure_school(client, school_id)
+    configuration = client.get(f"/schools/{school_id}/configuration").json()
+
+    forbidden_configuration = client.put(
+        f"/schools/{school_id}/configuration",
+        json=configuration,
+        headers={"X-Actor-Role": "PLANNER"},
+    )
+    assert forbidden_configuration.status_code == 403
+
+    plan = create_plan(client, school_id)
+    assert solve_once(client, school_id, plan["id"], expected_version=1).status_code == 200
+    assert client.post(
+        f"/schools/{school_id}/day-plans/{plan['id']}/confirm",
+        json={"expected_version": 2},
+        headers={"X-Actor-Role": "PLANNER"},
+    ).status_code == 200
+
+    forbidden_reopen = client.post(
+        f"/schools/{school_id}/day-plans/{plan['id']}/reopen",
+        json={"expected_version": 3},
+        headers={"X-Actor-Role": "PLANNER"},
+    )
+    assert forbidden_reopen.status_code == 403
+    assert "ADMIN role required" in forbidden_reopen.json()["detail"]

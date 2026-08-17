@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -17,6 +18,35 @@ class SchoolRead(BaseModel):
 
     id: UUID
     name: str
+    created_at: datetime
+
+
+class UserCreate(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+    display_name: str = Field(min_length=1, max_length=160)
+
+
+class UserRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    email: str
+    display_name: str
+    created_at: datetime
+
+
+class SchoolMembershipPut(BaseModel):
+    user_id: UUID
+    role: Literal["ADMIN", "PLANNER", "VIEWER"]
+
+
+class SchoolMembershipRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    school_id: UUID
+    user_id: UUID
+    role: str
     created_at: datetime
 
 
@@ -82,8 +112,7 @@ class DayPlanLifecycleRequest(BaseModel):
     reason: str | None = Field(default=None, max_length=500)
 
 
-class DayPlanCreate(BaseModel):
-    school_id: UUID
+class DayPlanCreateScoped(BaseModel):
     plan_date: date
     source_hash: str | None = Field(default=None, max_length=64)
     notes: str | None = None
@@ -111,6 +140,7 @@ class DayPlanRunRead(BaseModel):
     id: UUID
     day_plan_id: UUID
     school_id: UUID
+    actor_user_id: UUID | None
     version: int
     input_payload: dict[str, object]
     output_payload: dict[str, object]
@@ -127,6 +157,7 @@ class DayPlanEventRead(BaseModel):
     id: UUID
     day_plan_id: UUID
     school_id: UUID
+    actor_user_id: UUID | None
     version: int
     event_type: str
     from_status: str

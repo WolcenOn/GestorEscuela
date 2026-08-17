@@ -39,6 +39,32 @@ class SchoolRow(Base):
     day_plans: Mapped[list[DayPlanRow]] = relationship(back_populates="school")
 
 
+class UserRow(Base):
+    __tablename__ = "users"
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    email: Mapped[str] = mapped_column(String(320), nullable=False, unique=True)
+    display_name: Mapped[str] = mapped_column(String(160), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class SchoolMembershipRow(Base):
+    __tablename__ = "school_memberships"
+    __table_args__ = (
+        UniqueConstraint("school_id", "user_id", name="uq_membership_school_user"),
+    )
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    school_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("schools.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    role: Mapped[str] = mapped_column(String(20), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class SchoolGroupRow(Base):
     __tablename__ = "school_groups"
     __table_args__ = (
@@ -124,6 +150,10 @@ class DayPlanRow(Base):
         String(20), nullable=False, default=DayPlanStatus.DRAFT.value
     )
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    __mapper_args__ = {
+        "version_id_col": version,
+        "version_id_generator": False,
+    }
     source_hash: Mapped[str | None] = mapped_column(String(64))
     notes: Mapped[str | None] = mapped_column(Text)
     payload: Mapped[dict[str, object]] = mapped_column(
@@ -148,6 +178,9 @@ class DayPlanRunRow(Base):
     )
     school_id: Mapped[UUID] = mapped_column(
         PG_UUID(as_uuid=True), ForeignKey("schools.id", ondelete="CASCADE"), nullable=False
+    )
+    actor_user_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
     )
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     input_payload: Mapped[dict[str, object]] = mapped_column(
@@ -175,6 +208,9 @@ class DayPlanEventRow(Base):
     )
     school_id: Mapped[UUID] = mapped_column(
         PG_UUID(as_uuid=True), ForeignKey("schools.id", ondelete="CASCADE"), nullable=False
+    )
+    actor_user_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
     )
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     event_type: Mapped[str] = mapped_column(String(32), nullable=False)
