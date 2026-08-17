@@ -288,14 +288,6 @@ def create_day_plan(payload: DayPlanCreate, session: SessionDep, _actor: Planner
     return plan
 
 
-@app.get("/day-plans/{plan_id}", response_model=DayPlanRead)
-def get_day_plan(plan_id: UUID, session: SessionDep, _actor: ViewerDep) -> DayPlanRow:
-    plan = session.get(DayPlanRow, plan_id)
-    if plan is None:
-        raise HTTPException(status_code=404, detail="Day plan not found")
-    return plan
-
-
 @app.get("/schools/{school_id}/day-plans/{plan_id}", response_model=DayPlanRead)
 def get_school_day_plan(
     school_id: UUID,
@@ -367,6 +359,7 @@ def _change_plan_status(
     *,
     plan: DayPlanRow,
     school_id: UUID,
+    actor_user_id: UUID | None,
     request: DayPlanLifecycleRequest,
     from_status: DayPlanStatus,
     to_status: DayPlanStatus,
@@ -390,6 +383,7 @@ def _change_plan_status(
         DayPlanEventRow(
             day_plan_id=plan.id,
             school_id=school_id,
+            actor_user_id=actor_user_id,
             version=next_version,
             event_type=event_type,
             from_status=from_status.value,
@@ -418,6 +412,7 @@ def confirm_day_plan(
     return _change_plan_status(
         plan=plan,
         school_id=school_id,
+        actor_user_id=_actor.user_id,
         request=request,
         from_status=DayPlanStatus.SOLVED,
         to_status=DayPlanStatus.CONFIRMED,
@@ -438,6 +433,7 @@ def reopen_day_plan(
     return _change_plan_status(
         plan=plan,
         school_id=school_id,
+        actor_user_id=_actor.user_id,
         request=request,
         from_status=DayPlanStatus.CONFIRMED,
         to_status=DayPlanStatus.SOLVED,
@@ -577,6 +573,7 @@ def solve_day_plan(
         DayPlanRunRow(
             day_plan_id=plan.id,
             school_id=school_id,
+            actor_user_id=_actor.user_id,
             version=next_version,
             input_payload=input_payload,
             output_payload=output_payload,
