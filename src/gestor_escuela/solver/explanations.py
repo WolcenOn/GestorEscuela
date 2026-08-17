@@ -29,6 +29,10 @@ def explain_solution(
         reasons = [
             "está disponible y es compatible con el grupo",
             f"lleva {teacher.substitution_count} sustituciones previas",
+            (
+                f"carga reciente: {teacher.substitutions_last_7_days} en 7 días y "
+                f"{teacher.substitutions_last_30_days} en 30 días"
+            ),
         ]
         if substitution.displaced_activity_id:
             displaced = activities_by_id[substitution.displaced_activity_id]
