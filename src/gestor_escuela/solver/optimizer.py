@@ -275,16 +275,13 @@ class SchoolDayOptimizer:
             return (), ()
 
         for teacher in teachers:
-            base = {
-                "activity_id": need.activity.id,
-                "slot_id": need.activity.slot_id,
-                "group_id": group_id,
-                "teacher_id": teacher.id,
-            }
             if teacher.id == need.absent_teacher_id:
                 assessments.append(
                     CandidateAssessment(
-                        **base,
+                        activity_id=need.activity.id,
+                        slot_id=need.activity.slot_id,
+                        group_id=group_id,
+                        teacher_id=teacher.id,
                         status=CandidateStatus.REJECTED,
                         rejection_reason=CandidateRejectionReason.ABSENT_TEACHER,
                         detail="Es el docente ausente responsable de la actividad.",
@@ -294,7 +291,10 @@ class SchoolDayOptimizer:
             if (teacher.id, need.activity.slot_id) in absent_slots:
                 assessments.append(
                     CandidateAssessment(
-                        **base,
+                        activity_id=need.activity.id,
+                        slot_id=need.activity.slot_id,
+                        group_id=group_id,
+                        teacher_id=teacher.id,
                         status=CandidateStatus.REJECTED,
                         rejection_reason=CandidateRejectionReason.ABSENT_IN_SLOT,
                         detail="El docente también está ausente en esta franja.",
@@ -304,7 +304,10 @@ class SchoolDayOptimizer:
             if group_id not in teacher.can_cover_groups:
                 assessments.append(
                     CandidateAssessment(
-                        **base,
+                        activity_id=need.activity.id,
+                        slot_id=need.activity.slot_id,
+                        group_id=group_id,
+                        teacher_id=teacher.id,
                         status=CandidateStatus.REJECTED,
                         rejection_reason=CandidateRejectionReason.INCOMPATIBLE_GROUP,
                         detail=f"No está habilitado para cubrir el grupo {group_id}.",
@@ -316,7 +319,10 @@ class SchoolDayOptimizer:
             if current and not self._can_displace(current):
                 assessments.append(
                     CandidateAssessment(
-                        **base,
+                        activity_id=need.activity.id,
+                        slot_id=need.activity.slot_id,
+                        group_id=group_id,
+                        teacher_id=teacher.id,
                         status=CandidateStatus.REJECTED,
                         displaced_activity_id=current.id,
                         rejection_reason=CandidateRejectionReason.IMMOVABLE_ACTIVITY,
@@ -336,7 +342,10 @@ class SchoolDayOptimizer:
             candidates.append(_Candidate(teacher, current, penalty))
             assessments.append(
                 CandidateAssessment(
-                    **base,
+                    activity_id=need.activity.id,
+                    slot_id=need.activity.slot_id,
+                    group_id=group_id,
+                    teacher_id=teacher.id,
                     status=CandidateStatus.VALID_ALTERNATIVE,
                     penalty=penalty,
                     displaced_activity_id=current.id if current else None,
