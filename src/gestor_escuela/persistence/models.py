@@ -39,6 +39,32 @@ class SchoolRow(Base):
     day_plans: Mapped[list[DayPlanRow]] = relationship(back_populates="school")
 
 
+class UserRow(Base):
+    __tablename__ = "users"
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    email: Mapped[str] = mapped_column(String(320), nullable=False, unique=True)
+    display_name: Mapped[str] = mapped_column(String(160), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class SchoolMembershipRow(Base):
+    __tablename__ = "school_memberships"
+    __table_args__ = (
+        UniqueConstraint("school_id", "user_id", name="uq_membership_school_user"),
+    )
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    school_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("schools.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    role: Mapped[str] = mapped_column(String(20), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class SchoolGroupRow(Base):
     __tablename__ = "school_groups"
     __table_args__ = (
