@@ -10,6 +10,7 @@ from gestor_escuela.domain.models import (
     Activity,
     ActivityType,
     CandidateAssessment,
+    CandidatePenaltyBreakdown,
     CandidateRejectionReason,
     CandidateStatus,
     LockedSubstitution,
@@ -33,6 +34,7 @@ class _Candidate:
     teacher: Teacher
     displaced_activity: Activity | None
     penalty: int
+    penalty_breakdown: CandidatePenaltyBreakdown
 
 
 class SchoolDayOptimizer:
@@ -334,12 +336,24 @@ class SchoolDayOptimizer:
                 )
                 continue
 
-            penalty = teacher.substitution_count * self.weights.substitution_history
-            if teacher.emergency_only:
-                penalty += self.weights.emergency_teacher
-            if current:
-                penalty += self._displacement_penalty(current)
-            candidates.append(_Candidate(teacher, current, penalty))
+            historical_total = teacher.substitution_count * self.weights.substitution_history
+            recent_7_days = (
+                teacher.substitutions_last_7_days * self.weights.recent_substitution_7_days
+            )
+            recent_30_days = (
+                teacher.substitutions_last_30_days * self.weights.recent_substitution_30_days
+            )
+            emergency = self.weights.emergency_teacher if teacher.emergency_only else 0
+            displacement = self._displacement_penalty(current) if current else 0
+            breakdown = CandidatePenaltyBreakdown(
+                historical_total=historical_total,
+                recent_7_days=recent_7_days,
+                recent_30_days=recent_30_days,
+                emergency=emergency,
+                displacement=displacement,
+            )
+            penalty = breakdown.total
+            candidates.append(_Candidate(teacher, current, penalty, breakdown))
             assessments.append(
                 CandidateAssessment(
                     activity_id=need.activity.id,
@@ -348,6 +362,7 @@ class SchoolDayOptimizer:
                     teacher_id=teacher.id,
                     status=CandidateStatus.VALID_ALTERNATIVE,
                     penalty=penalty,
+                    penalty_breakdown=breakdown,
                     displaced_activity_id=current.id if current else None,
                     detail="Cumple las restricciones duras para esta cobertura.",
                 )
