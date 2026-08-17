@@ -83,8 +83,8 @@ def create_plan(
     plan_date: str = "2026-09-15",
 ) -> dict[str, object]:
     response = client.post(
-        "/day-plans",
-        json={"school_id": school_id, "plan_date": plan_date},
+        f"/schools/{school_id}/day-plans",
+        json={"plan_date": plan_date},
     )
     assert response.status_code == 201
     return response.json()
@@ -110,9 +110,8 @@ def test_health(client: TestClient) -> None:
 def test_create_and_read_day_plan(client: TestClient) -> None:
     school_id = create_school(client)
     create_response = client.post(
-        "/day-plans",
+        f"/schools/{school_id}/day-plans",
         json={
-            "school_id": school_id,
             "plan_date": "2026-09-15",
             "source_hash": "abc123",
             "payload": {"absences": ["P02", "P04"]},
@@ -131,19 +130,18 @@ def test_create_and_read_day_plan(client: TestClient) -> None:
 
 def test_day_plan_is_unique_per_school_and_date(client: TestClient) -> None:
     school_id = create_school(client)
-    payload = {"school_id": school_id, "plan_date": "2026-09-15"}
-    assert client.post("/day-plans", json=payload).status_code == 201
-    duplicate = client.post("/day-plans", json=payload)
+    payload = {"plan_date": "2026-09-15"}
+    endpoint = f"/schools/{school_id}/day-plans"
+    assert client.post(endpoint, json=payload).status_code == 201
+    duplicate = client.post(endpoint, json=payload)
     assert duplicate.status_code == 409
 
 
 def test_unknown_school_is_rejected(client: TestClient) -> None:
+    school_id = "00000000-0000-0000-0000-000000000001"
     response = client.post(
-        "/day-plans",
-        json={
-            "school_id": "00000000-0000-0000-0000-000000000001",
-            "plan_date": "2026-09-15",
-        },
+        f"/schools/{school_id}/day-plans",
+        json={"plan_date": "2026-09-15"},
     )
     assert response.status_code == 404
 
