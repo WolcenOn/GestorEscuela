@@ -40,7 +40,10 @@ def create_user(payload: UserCreate, session: SessionDep, _actor: AdminDep) -> U
         session.commit()
     except IntegrityError as exc:
         session.rollback()
-        raise HTTPException(status_code=409, detail="A user with this email already exists") from exc
+        raise HTTPException(
+            status_code=409,
+            detail="A user with this email already exists",
+        ) from exc
     session.refresh(user)
     return user
 
