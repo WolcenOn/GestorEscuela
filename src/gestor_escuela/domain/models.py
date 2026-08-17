@@ -58,10 +58,10 @@ class Teacher:
     profile: TeacherProfile
     substitution_count: int = 0
     can_cover_groups: frozenset[str] = field(default_factory=frozenset)
-    specialties: frozenset[str] = field(default_factory=frozenset)
     emergency_only: bool = False
     substitutions_last_7_days: int = 0
     substitutions_last_30_days: int = 0
+    specialties: frozenset[str] = field(default_factory=frozenset)
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,10 +77,10 @@ class Activity:
     activity_type: ActivityType
     teacher_id: str
     group_id: str | None = None
-    required_specialty: str | None = None
     priority: Priority = Priority.NORMAL
     movable: bool = False
     cancelable: bool = False
+    required_specialty: str | None = None
 
     @property
     def requires_group_coverage(self) -> bool:
