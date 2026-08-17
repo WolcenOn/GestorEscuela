@@ -111,6 +111,7 @@ class DayPlanRunRead(BaseModel):
     id: UUID
     day_plan_id: UUID
     school_id: UUID
+    actor_user_id: UUID | None
     version: int
     input_payload: dict[str, object]
     output_payload: dict[str, object]
@@ -127,6 +128,7 @@ class DayPlanEventRead(BaseModel):
     id: UUID
     day_plan_id: UUID
     school_id: UUID
+    actor_user_id: UUID | None
     version: int
     event_type: str
     from_status: str
