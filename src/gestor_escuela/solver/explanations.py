@@ -65,10 +65,12 @@ def explain_solution(
         for assessment in assessments_by_activity[substitution.activity_id]:
             if assessment.status is not CandidateStatus.REJECTED:
                 continue
-            lines.append(
-                f"- {assessment.teacher_id} descartado: "
-                f"{assessment.detail or assessment.rejection_reason or 'restricción no satisfecha'}."
+            rejection_detail = (
+                assessment.detail
+                or assessment.rejection_reason
+                or "restricción no satisfecha"
             )
+            lines.append(f"- {assessment.teacher_id} descartado: {rejection_detail}.")
 
     for item in solution.uncovered:
         lines.append(f"{item.group_id} queda sin cobertura en {item.slot_id}: {item.reason}")
