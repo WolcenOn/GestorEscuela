@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import time
 
-from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import OperationalError
 
+from alembic import command
 from gestor_escuela.persistence.db import database_url
 
 
