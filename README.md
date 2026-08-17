@@ -76,22 +76,22 @@ La documentación OpenAPI queda disponible en `/docs` mientras la API está en e
 
 ## Identidad y membresías
 
-Durante esta fase existe un bootstrap provisional mediante `X-Actor-Role`. Su finalidad es crear el centro, la identidad y la membresía administrativa iniciales; no constituye autenticación real.
+Durante esta fase existe un bootstrap provisional mediante `X-Actor-Role`. Su finalidad es crear el centro, la identidad y la primera membresía administrativa; no constituye autenticación real.
 
-Una vez existe un usuario con membresía, las rutas con `school_id` pueden autorizarse con:
+Mientras un centro no tenga ninguna membresía, `X-Actor-Role` puede utilizarse para completar ese bootstrap. En cuanto exista la primera membresía, las rutas con `school_id` dejan de aceptar autorización basada solo en rol y exigen:
 
 ```text
 X-Actor-Id: <UUID_DEL_USUARIO>
 ```
 
-La membresía persistida del usuario en ese centro es la fuente de verdad del rol. Enviar además `X-Actor-Role` no permite elevar privilegios cuando existe identidad.
+La membresía persistida del usuario en ese centro es entonces la única fuente de verdad del rol. Enviar además `X-Actor-Role` no permite elevar privilegios.
 
 Flujo de bootstrap actual:
 
 1. crear el centro;
 2. crear usuario con `POST /users`;
-3. asignar o actualizar su membresía con `PUT /schools/{school_id}/memberships`;
-4. usar `X-Actor-Id` en las operaciones posteriores del centro.
+3. asignar la primera membresía `ADMIN` con `PUT /schools/{school_id}/memberships`;
+4. usar `X-Actor-Id` en todas las operaciones posteriores del centro.
 
 Los roles actuales son:
 
@@ -115,7 +115,7 @@ Existe un ejemplo en:
 examples/school_configuration.example.json
 ```
 
-Con la API en ejecución y un centro ya creado:
+Durante el bootstrap, antes de crear la primera membresía:
 
 ```powershell
 python -m gestor_escuela.import_config `
@@ -123,11 +123,12 @@ python -m gestor_escuela.import_config `
   --file examples/school_configuration.example.json
 ```
 
-También se puede indicar otra API:
+Una vez el centro tiene membresías, se debe indicar un usuario `ADMIN`:
 
 ```powershell
 python -m gestor_escuela.import_config `
   --school-id 00000000-0000-0000-0000-000000000001 `
+  --actor-id 00000000-0000-0000-0000-000000000002 `
   --file .\mi-centro.json `
   --api-url http://127.0.0.1:8000
 ```
@@ -159,7 +160,7 @@ compose.yml
 
 ## Deuda técnica actual
 
-- `X-Actor-Role` sigue existiendo como mecanismo provisional de bootstrap; no es autenticación real.
+- `X-Actor-Role` sigue existiendo únicamente como mecanismo provisional de bootstrap; no es autenticación real.
 - La compatibilidad docente-grupo sigue siendo binaria; faltan requisitos por materia/perfil.
 - La equidad usa todavía un contador histórico simple, no ventanas semanal/mensual/trimestral.
 - Las explicaciones no enumeran aún el catálogo completo de candidatos descartados.
