@@ -4,8 +4,8 @@
     "builder": "RAILPACK"
   },
   "deploy": {
-    "preDeployCommand": "python -m gestor_escuela.deploy",
-    "startCommand": "uvicorn gestor_escuela.api.app:app --host 0.0.0.0 --port $PORT",
+    "preDeployCommand": "PYTHONPATH=src python -m gestor_escuela.deploy",
+    "startCommand": "PYTHONPATH=src python -m uvicorn gestor_escuela.api.app:app --host 0.0.0.0 --port $PORT",
     "healthcheckPath": "/health",
     "healthcheckTimeout": 100,
     "restartPolicyType": "ON_FAILURE",
