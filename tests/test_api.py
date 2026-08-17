@@ -124,7 +124,7 @@ def test_create_and_read_day_plan(client: TestClient) -> None:
     assert plan["version"] == 1
     assert plan["payload"]["absences"] == ["P02", "P04"]
 
-    read_response = client.get(f"/day-plans/{plan['id']}")
+    read_response = client.get(f"/schools/{school_id}/day-plans/{plan['id']}")
     assert read_response.status_code == 200
     assert read_response.json()["school_id"] == school_id
 
