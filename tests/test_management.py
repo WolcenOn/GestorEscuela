@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Generator
+from collections.abc import Generator, Iterator
+from contextlib import contextmanager
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -11,7 +12,8 @@ from gestor_escuela.api.app import app
 from gestor_escuela.persistence.db import Base, get_session
 
 
-def _client() -> Generator[TestClient, None, None]:
+@contextmanager
+def _client() -> Iterator[TestClient]:
     engine = create_engine(
         "sqlite+pysqlite:///:memory:",
         connect_args={"check_same_thread": False},
@@ -35,7 +37,7 @@ def _client() -> Generator[TestClient, None, None]:
 
 
 def test_bootstrap_membership_enables_identity_only_tenant_access() -> None:
-    with next(_client()) as client:
+    with _client() as client:
         school = client.post("/schools", json={"name": "CEIP Identidad"})
         assert school.status_code == 201
         school_id = school.json()["id"]
@@ -65,7 +67,7 @@ def test_bootstrap_membership_enables_identity_only_tenant_access() -> None:
 
 
 def test_viewer_membership_cannot_create_tenant_day_plan() -> None:
-    with next(_client()) as client:
+    with _client() as client:
         school = client.post("/schools", json={"name": "CEIP Lectura"})
         school_id = school.json()["id"]
         user = client.post(
@@ -88,7 +90,7 @@ def test_viewer_membership_cannot_create_tenant_day_plan() -> None:
 
 
 def test_admin_identity_can_manage_memberships_for_own_school() -> None:
-    with next(_client()) as client:
+    with _client() as client:
         school = client.post("/schools", json={"name": "CEIP Admin"})
         school_id = school.json()["id"]
 
