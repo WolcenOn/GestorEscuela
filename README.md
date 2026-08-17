@@ -76,7 +76,9 @@ La documentación OpenAPI queda disponible en `/docs` mientras la API está en e
 
 ## Identidad y membresías
 
-Durante esta fase existe un bootstrap provisional mediante `X-Actor-Role`. Se usa para crear la identidad y membresía administrativa iniciales. Una vez existe un usuario con membresía, las rutas con `school_id` pueden autorizarse con:
+Durante esta fase existe un bootstrap provisional mediante `X-Actor-Role`. Su finalidad es crear el centro, la identidad y la membresía administrativa iniciales; no constituye autenticación real.
+
+Una vez existe un usuario con membresía, las rutas con `school_id` pueden autorizarse con:
 
 ```text
 X-Actor-Id: <UUID_DEL_USUARIO>
@@ -86,9 +88,10 @@ La membresía persistida del usuario en ese centro es la fuente de verdad del ro
 
 Flujo de bootstrap actual:
 
-1. crear usuario con `POST /users`;
-2. asignar o actualizar su membresía con `PUT /schools/{school_id}/memberships`;
-3. usar `X-Actor-Id` en las operaciones posteriores del centro.
+1. crear el centro;
+2. crear usuario con `POST /users`;
+3. asignar o actualizar su membresía con `PUT /schools/{school_id}/memberships`;
+4. usar `X-Actor-Id` en las operaciones posteriores del centro.
 
 Los roles actuales son:
 
