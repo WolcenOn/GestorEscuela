@@ -38,6 +38,15 @@ def _parse_role(value: str) -> ActorRole:
         ) from exc
 
 
+def _school_has_memberships(session: Session, school_id: UUID) -> bool:
+    membership_id = session.scalar(
+        select(SchoolMembershipRow.id)
+        .where(SchoolMembershipRow.school_id == school_id)
+        .limit(1)
+    )
+    return membership_id is not None
+
+
 def get_actor_context(
     session: SessionDep,
     school_id: UUID | None = None,
@@ -75,6 +84,13 @@ def get_actor_context(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="X-Actor-Id or X-Actor-Role header is required",
         )
+
+    if school_id is not None and _school_has_memberships(session, school_id):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="X-Actor-Id is required after school bootstrap",
+        )
+
     return ActorContext(user_id=None, role=_parse_role(x_actor_role))
 
 
