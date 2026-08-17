@@ -316,6 +316,23 @@ class SchoolDayOptimizer:
                     )
                 )
                 continue
+            required_specialty = need.activity.required_specialty
+            if required_specialty is not None and required_specialty not in teacher.specialties:
+                assessments.append(
+                    CandidateAssessment(
+                        activity_id=need.activity.id,
+                        slot_id=need.activity.slot_id,
+                        group_id=group_id,
+                        teacher_id=teacher.id,
+                        status=CandidateStatus.REJECTED,
+                        rejection_reason=CandidateRejectionReason.MISSING_SPECIALTY,
+                        detail=(
+                            f"La actividad requiere la especialidad {required_specialty} y el "
+                            "docente no la tiene."
+                        ),
+                    )
+                )
+                continue
 
             current = activities_by_teacher_slot.get((teacher.id, need.activity.slot_id))
             if current and not self._can_displace(current):
