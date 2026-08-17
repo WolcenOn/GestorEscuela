@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from ortools.sat.python import cp_model
 
@@ -9,6 +9,9 @@ from gestor_escuela.domain.models import (
     Absence,
     Activity,
     ActivityType,
+    CandidateAssessment,
+    CandidateRejectionReason,
+    CandidateStatus,
     LockedSubstitution,
     Priority,
     SolverSolution,
@@ -64,15 +67,17 @@ class SchoolDayOptimizer:
         assignment_vars: dict[tuple[int, str], cp_model.IntVar] = {}
         uncovered_vars: dict[int, cp_model.IntVar] = {}
         candidates_by_need: dict[int, tuple[_Candidate, ...]] = {}
+        assessments_by_need: dict[int, tuple[CandidateAssessment, ...]] = {}
 
         for need_index, need in enumerate(needs):
-            candidates = self._candidates_for_need(
+            candidates, assessments = self._evaluate_candidates_for_need(
                 need=need,
                 teachers=teachers,
                 activities_by_teacher_slot=activities_by_teacher_slot,
                 absent_slots=absent_slots,
             )
             candidates_by_need[need_index] = candidates
+            assessments_by_need[need_index] = assessments
             for candidate in candidates:
                 assignment_vars[(need_index, candidate.teacher.id)] = model.new_bool_var(
                     f"assign_n{need_index}_{candidate.teacher.id}"
@@ -130,6 +135,9 @@ class SchoolDayOptimizer:
 
         substitutions: list[Substitution] = []
         uncovered: list[UncoveredActivity] = []
+        selected_by_need: dict[int, _Candidate] = {}
+        selected_teacher_slots: set[tuple[str, str]] = set()
+
         for need_index, need in enumerate(needs):
             selected = None
             for candidate in candidates_by_need[need_index]:
@@ -150,6 +158,8 @@ class SchoolDayOptimizer:
                     )
                 )
                 continue
+            selected_by_need[need_index] = selected
+            selected_teacher_slots.add((selected.teacher.id, need.activity.slot_id))
             substitutions.append(
                 Substitution(
                     activity_id=need.activity.id,
@@ -164,6 +174,34 @@ class SchoolDayOptimizer:
                 )
             )
 
+        candidate_assessments: list[CandidateAssessment] = []
+        for need_index, assessments in assessments_by_need.items():
+            need = needs[need_index]
+            selected = selected_by_need.get(need_index)
+            for assessment in assessments:
+                if assessment.status is CandidateStatus.REJECTED:
+                    candidate_assessments.append(assessment)
+                    continue
+                if selected is not None and assessment.teacher_id == selected.teacher.id:
+                    candidate_assessments.append(
+                        replace(assessment, status=CandidateStatus.SELECTED)
+                    )
+                    continue
+                if (assessment.teacher_id, need.activity.slot_id) in selected_teacher_slots:
+                    candidate_assessments.append(
+                        replace(
+                            assessment,
+                            status=CandidateStatus.REJECTED,
+                            rejection_reason=CandidateRejectionReason.GLOBAL_CONFLICT,
+                            detail=(
+                                "El docente se usa para otra cobertura simultánea y no puede "
+                                "atender dos grupos en la misma franja."
+                            ),
+                        )
+                    )
+                    continue
+                candidate_assessments.append(assessment)
+
         soft_penalty = sum(item.penalty for item in substitutions)
         total_penalty = soft_penalty + len(uncovered) * self.weights.uncovered
         objective_bound = solver.best_objective_bound + len(uncovered) * self.weights.uncovered
@@ -174,6 +212,7 @@ class SchoolDayOptimizer:
             total_penalty=total_penalty,
             objective_bound=objective_bound,
             wall_time_seconds=solver.wall_time,
+            candidate_assessments=tuple(candidate_assessments),
         )
 
     @staticmethod
@@ -221,29 +260,72 @@ class SchoolDayOptimizer:
             locked_teacher_slots.add(teacher_slot)
             model.add(assignment_vars[(need_index, locked.substitute_teacher_id)] == 1)
 
-    def _candidates_for_need(
+    def _evaluate_candidates_for_need(
         self,
         *,
         need: _Need,
         teachers: tuple[Teacher, ...],
         activities_by_teacher_slot: dict[tuple[str, str], Activity],
         absent_slots: set[tuple[str, str]],
-    ) -> tuple[_Candidate, ...]:
+    ) -> tuple[tuple[_Candidate, ...], tuple[CandidateAssessment, ...]]:
         candidates: list[_Candidate] = []
+        assessments: list[CandidateAssessment] = []
         group_id = need.activity.group_id
         if group_id is None:
-            return ()
+            return (), ()
 
         for teacher in teachers:
+            base = {
+                "activity_id": need.activity.id,
+                "slot_id": need.activity.slot_id,
+                "group_id": group_id,
+                "teacher_id": teacher.id,
+            }
             if teacher.id == need.absent_teacher_id:
+                assessments.append(
+                    CandidateAssessment(
+                        **base,
+                        status=CandidateStatus.REJECTED,
+                        rejection_reason=CandidateRejectionReason.ABSENT_TEACHER,
+                        detail="Es el docente ausente responsable de la actividad.",
+                    )
+                )
                 continue
             if (teacher.id, need.activity.slot_id) in absent_slots:
+                assessments.append(
+                    CandidateAssessment(
+                        **base,
+                        status=CandidateStatus.REJECTED,
+                        rejection_reason=CandidateRejectionReason.ABSENT_IN_SLOT,
+                        detail="El docente también está ausente en esta franja.",
+                    )
+                )
                 continue
             if group_id not in teacher.can_cover_groups:
+                assessments.append(
+                    CandidateAssessment(
+                        **base,
+                        status=CandidateStatus.REJECTED,
+                        rejection_reason=CandidateRejectionReason.INCOMPATIBLE_GROUP,
+                        detail=f"No está habilitado para cubrir el grupo {group_id}.",
+                    )
+                )
                 continue
 
             current = activities_by_teacher_slot.get((teacher.id, need.activity.slot_id))
             if current and not self._can_displace(current):
+                assessments.append(
+                    CandidateAssessment(
+                        **base,
+                        status=CandidateStatus.REJECTED,
+                        displaced_activity_id=current.id,
+                        rejection_reason=CandidateRejectionReason.IMMOVABLE_ACTIVITY,
+                        detail=(
+                            f"Tiene {current.activity_type.value} {current.id} que no puede "
+                            "desplazarse en esta franja."
+                        ),
+                    )
+                )
                 continue
 
             penalty = teacher.substitution_count * self.weights.substitution_history
@@ -252,8 +334,17 @@ class SchoolDayOptimizer:
             if current:
                 penalty += self._displacement_penalty(current)
             candidates.append(_Candidate(teacher, current, penalty))
+            assessments.append(
+                CandidateAssessment(
+                    **base,
+                    status=CandidateStatus.VALID_ALTERNATIVE,
+                    penalty=penalty,
+                    displaced_activity_id=current.id if current else None,
+                    detail="Cumple las restricciones duras para esta cobertura.",
+                )
+            )
 
-        return tuple(candidates)
+        return tuple(candidates), tuple(assessments)
 
     @staticmethod
     def _can_displace(activity: Activity) -> bool:
