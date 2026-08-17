@@ -66,6 +66,7 @@ class TeacherConfig(BaseModel):
     profile: TeacherProfile
     substitution_count: int = Field(default=0, ge=0)
     can_cover_groups: set[str] = Field(default_factory=set)
+    specialties: set[str] = Field(default_factory=set)
     emergency_only: bool = False
 
 
@@ -75,6 +76,7 @@ class ActivityConfig(BaseModel):
     activity_type: ActivityType
     teacher_id: str = Field(min_length=1, max_length=64)
     group_id: str | None = Field(default=None, max_length=64)
+    required_specialty: str | None = Field(default=None, max_length=64)
     priority: Priority = Priority.NORMAL
     movable: bool = False
     cancelable: bool = False
