@@ -78,7 +78,7 @@ La documentación OpenAPI queda disponible en `/docs` mientras la API está en e
 
 Durante esta fase existe un bootstrap provisional mediante `X-Actor-Role`. Su finalidad es crear el centro, la identidad y la primera membresía administrativa; no constituye autenticación real.
 
-Mientras un centro no tenga ninguna membresía, `X-Actor-Role` puede utilizarse para completar ese bootstrap. En cuanto exista la primera membresía, las rutas con `school_id` dejan de aceptar autorización basada solo en rol y exigen:
+Mientras un centro no tenga ninguna membresía, `X-Actor-Role` puede utilizarse para completar ese bootstrap. En cuanto existe la primera membresía, las rutas con `school_id` dejan de aceptar autorización basada solo en rol y exigen:
 
 ```text
 X-Actor-Id: <UUID_DEL_USUARIO>
