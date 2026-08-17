@@ -26,7 +26,10 @@ def import_configuration(
     request = Request(
         endpoint,
         data=configuration.model_dump_json().encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            "X-Actor-Role": "ADMIN",
+        },
         method="PUT",
     )
     try:
