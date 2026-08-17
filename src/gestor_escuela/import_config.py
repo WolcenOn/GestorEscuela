@@ -21,14 +21,20 @@ def import_configuration(
     api_url: str,
     school_id: UUID,
     configuration: SchoolConfigurationPut,
+    actor_id: UUID | None = None,
 ) -> dict[str, object]:
     endpoint = f"{api_url.rstrip('/')}/schools/{school_id}/configuration"
+    auth_headers = (
+        {"X-Actor-Id": str(actor_id)}
+        if actor_id is not None
+        else {"X-Actor-Role": "ADMIN"}
+    )
     request = Request(
         endpoint,
         data=configuration.model_dump_json().encode("utf-8"),
         headers={
             "Content-Type": "application/json",
-            "X-Actor-Role": "ADMIN",
+            **auth_headers,
         },
         method="PUT",
     )
@@ -50,6 +56,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--school-id", required=True, type=UUID)
     parser.add_argument("--file", required=True, type=Path)
     parser.add_argument("--api-url", default="http://127.0.0.1:8000")
+    parser.add_argument(
+        "--actor-id",
+        type=UUID,
+        help="User UUID with ADMIN membership; required after school bootstrap",
+    )
     return parser
 
 
@@ -60,6 +71,7 @@ def main() -> None:
         api_url=args.api_url,
         school_id=args.school_id,
         configuration=configuration,
+        actor_id=args.actor_id,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
