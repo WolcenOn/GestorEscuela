@@ -14,7 +14,9 @@ El proyecto ya dispone de:
 - aislamiento por centro;
 - versionado optimista de `DayPlan` y auditoría de resoluciones/transiciones;
 - PostgreSQL como base de datos objetivo y pruebas de integración reales en CI;
-- autorización provisional por roles para operaciones sensibles.
+- identidades persistidas y membresías por centro;
+- autorización por membresía cuando se envía `X-Actor-Id`;
+- creación de planes en ruta tenant-scoped.
 
 ## Preparar el entorno en Windows PowerShell
 
@@ -72,21 +74,35 @@ uvicorn gestor_escuela.api.app:app --reload
 
 La documentación OpenAPI queda disponible en `/docs` mientras la API está en ejecución.
 
-## Roles provisionales de API
+## Identidad y membresías
 
-Mientras todavía no existe autenticación de usuarios, las rutas protegidas exigen el encabezado:
+Durante esta fase existe un bootstrap provisional mediante `X-Actor-Role`. Se usa únicamente para crear la primera identidad y la primera membresía administrativa. Una vez existe un usuario con membresía, las rutas con `school_id` pueden autorizarse solo con:
 
 ```text
-X-Actor-Role: ADMIN | PLANNER | VIEWER
+X-Actor-Id: <UUID_DEL_USUARIO>
 ```
 
-Reglas actuales:
+La membresía persistida del usuario en ese centro es la fuente de verdad del rol. Enviar además `X-Actor-Role` no permite elevar privilegios.
 
-- `ADMIN`: crear centros, modificar configuración, calcular/confirmar y reabrir planes.
-- `PLANNER`: crear, calcular y confirmar planes, además de operaciones de lectura.
-- `VIEWER`: solo lectura.
+Flujo de bootstrap actual:
 
-Este encabezado sirve únicamente para fijar y probar la frontera de autorización. **No autentica la identidad del usuario** y deberá sustituirse por identidad real y pertenencia al centro antes de producción.
+1. crear usuario con `POST /users`;
+2. asignar o actualizar su membresía con `PUT /schools/{school_id}/memberships`;
+3. usar `X-Actor-Id` en las operaciones posteriores del centro.
+
+Los roles actuales son:
+
+- `ADMIN`: configuración, membresías y reapertura;
+- `PLANNER`: creación/cálculo/confirmación de planes;
+- `VIEWER`: lectura.
+
+La creación recomendada de un plan ya está acotada al tenant:
+
+```text
+POST /schools/{school_id}/day-plans
+```
+
+La ruta global antigua `POST /day-plans` se conserva temporalmente por compatibilidad y se retirará cuando los consumidores hayan migrado.
 
 ## Importar configuración de un centro desde JSON
 
@@ -113,11 +129,11 @@ python -m gestor_escuela.import_config `
   --api-url http://127.0.0.1:8000
 ```
 
-El importador usa rol `ADMIN` y el fichero pasa por el mismo esquema de validación que `PUT /schools/{school_id}/configuration`.
+El fichero usa el mismo esquema de validación que `PUT /schools/{school_id}/configuration`.
 
 ## Concurrencia
 
-`DayPlan.version` funciona como contador de versión optimista. Las escrituras del ORM se condicionan a la versión conocida de la fila; si otra transacción la modifica antes, la segunda escritura se rechaza como actualización obsoleta. GitHub Actions valida este comportamiento contra PostgreSQL con dos sesiones independientes y con peticiones HTTP sincronizadas sobre la misma versión.
+`DayPlan.version` funciona como contador de versión optimista. Las escrituras del ORM se condicionan a la versión conocida de la fila; si otra transacción la modifica antes, la segunda escritura se rechaza como actualización obsoleta. GitHub Actions valida este comportamiento contra PostgreSQL con dos sesiones independientes y también mediante peticiones HTTP concurrentes.
 
 ## Estructura principal
 
@@ -140,8 +156,8 @@ compose.yml
 
 ## Deuda técnica actual
 
+- `X-Actor-Role` sigue existiendo como mecanismo de bootstrap y compatibilidad; no es autenticación real.
+- La ruta global antigua `POST /day-plans` sigue temporalmente disponible.
 - La compatibilidad docente-grupo sigue siendo binaria; faltan requisitos por materia/perfil.
 - La equidad usa todavía un contador histórico simple, no ventanas semanal/mensual/trimestral.
 - Las explicaciones no enumeran aún el catálogo completo de candidatos descartados.
-- Los roles actuales no autentican identidad ni pertenencia a un centro; falta el modelo de usuarios/membresías.
-- Falta sustituir el encabezado provisional de rol por una capa de identidad real antes de producción.
