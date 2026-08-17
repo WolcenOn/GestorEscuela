@@ -54,6 +54,13 @@ def test_school_membership_is_source_of_truth_for_actor_role() -> None:
     app.dependency_overrides[get_session] = override_session
     try:
         with TestClient(app) as client:
+            bootstrap_header_only = client.get(
+                f"/schools/{school_id}/configuration",
+                headers={"X-Actor-Role": "ADMIN"},
+            )
+            assert bootstrap_header_only.status_code == 401
+            assert "X-Actor-Id is required" in bootstrap_header_only.json()["detail"]
+
             headers = {"X-Actor-Id": str(user_id), "X-Actor-Role": "ADMIN"}
 
             allowed = client.get(
