@@ -179,6 +179,9 @@ class DayPlanRunRow(Base):
     school_id: Mapped[UUID] = mapped_column(
         PG_UUID(as_uuid=True), ForeignKey("schools.id", ondelete="CASCADE"), nullable=False
     )
+    actor_user_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
+    )
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     input_payload: Mapped[dict[str, object]] = mapped_column(
         JSON().with_variant(JSONB(), "postgresql"), nullable=False
@@ -205,6 +208,9 @@ class DayPlanEventRow(Base):
     )
     school_id: Mapped[UUID] = mapped_column(
         PG_UUID(as_uuid=True), ForeignKey("schools.id", ondelete="CASCADE"), nullable=False
+    )
+    actor_user_id: Mapped[UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
     )
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     event_type: Mapped[str] = mapped_column(String(32), nullable=False)
