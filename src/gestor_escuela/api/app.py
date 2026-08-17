@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import StaleDataError
 
 from gestor_escuela.api.auth import AdminDep, PlannerDep, ViewerDep
+from gestor_escuela.api.management import router as management_router
 from gestor_escuela.api.schemas import (
     DayPlanCreate,
     DayPlanEventRead,
@@ -47,6 +48,7 @@ from gestor_escuela.solver.optimizer import SchoolDayOptimizer
 
 app = FastAPI(title="GestorEscuela API", version="0.3.0")
 SessionDep = Annotated[Session, Depends(get_session)]
+app.include_router(management_router)
 
 
 @app.get("/health")
