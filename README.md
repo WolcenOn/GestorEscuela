@@ -13,7 +13,8 @@ El proyecto ya dispone de:
 - configuración operativa por centro para grupos, franjas, docentes y actividades;
 - aislamiento por centro;
 - versionado optimista de `DayPlan` y auditoría de resoluciones/transiciones;
-- PostgreSQL como base de datos objetivo y pruebas de integración reales en CI.
+- PostgreSQL como base de datos objetivo y pruebas de integración reales en CI;
+- autorización provisional por roles para operaciones sensibles.
 
 ## Preparar el entorno en Windows PowerShell
 
@@ -71,6 +72,22 @@ uvicorn gestor_escuela.api.app:app --reload
 
 La documentación OpenAPI queda disponible en `/docs` mientras la API está en ejecución.
 
+## Roles provisionales de API
+
+Mientras todavía no existe autenticación de usuarios, las rutas protegidas exigen el encabezado:
+
+```text
+X-Actor-Role: ADMIN | PLANNER | VIEWER
+```
+
+Reglas actuales:
+
+- `ADMIN`: crear centros, modificar configuración, calcular/confirmar y reabrir planes.
+- `PLANNER`: crear, calcular y confirmar planes, además de operaciones de lectura.
+- `VIEWER`: solo lectura.
+
+Este encabezado sirve únicamente para fijar y probar la frontera de autorización. **No autentica la identidad del usuario** y deberá sustituirse por identidad real y pertenencia al centro antes de producción.
+
 ## Importar configuración de un centro desde JSON
 
 Existe un ejemplo en:
@@ -96,11 +113,11 @@ python -m gestor_escuela.import_config `
   --api-url http://127.0.0.1:8000
 ```
 
-El fichero usa el mismo esquema de validación que `PUT /schools/{school_id}/configuration`.
+El importador usa rol `ADMIN` y el fichero pasa por el mismo esquema de validación que `PUT /schools/{school_id}/configuration`.
 
 ## Concurrencia
 
-`DayPlan.version` funciona como contador de versión optimista. Las escrituras del ORM se condicionan a la versión conocida de la fila; si otra transacción la modifica antes, la segunda escritura se rechaza como actualización obsoleta. GitHub Actions valida este comportamiento contra PostgreSQL con dos sesiones independientes.
+`DayPlan.version` funciona como contador de versión optimista. Las escrituras del ORM se condicionan a la versión conocida de la fila; si otra transacción la modifica antes, la segunda escritura se rechaza como actualización obsoleta. GitHub Actions valida este comportamiento contra PostgreSQL con dos sesiones independientes y con peticiones HTTP sincronizadas sobre la misma versión.
 
 ## Estructura principal
 
@@ -126,5 +143,5 @@ compose.yml
 - La compatibilidad docente-grupo sigue siendo binaria; faltan requisitos por materia/perfil.
 - La equidad usa todavía un contador histórico simple, no ventanas semanal/mensual/trimestral.
 - Las explicaciones no enumeran aún el catálogo completo de candidatos descartados.
-- Falta autorización por roles para configuración, confirmación y reapertura.
-- Falta ampliar las pruebas concurrentes desde el nivel ORM hasta peticiones HTTP simultáneas.
+- Los roles actuales no autentican identidad ni pertenencia a un centro; falta el modelo de usuarios/membresías.
+- Falta sustituir el encabezado provisional de rol por una capa de identidad real antes de producción.
