@@ -28,7 +28,7 @@ def client() -> Generator[TestClient, None, None]:
             yield session
 
     app.dependency_overrides[get_session] = override_session
-    with TestClient(app) as test_client:
+    with TestClient(app, headers={"X-Actor-Role": "ADMIN"}) as test_client:
         yield test_client
     app.dependency_overrides.clear()
     Base.metadata.drop_all(engine)
@@ -335,3 +335,65 @@ def test_school_scoped_plan_access_is_isolated(client: TestClient) -> None:
 
     solve_response = solve_once(client, school_b, plan["id"])
     assert solve_response.status_code == 404
+
+
+def test_viewer_can_read_but_cannot_change_configuration(client: TestClient) -> None:
+    school_id = create_school(client)
+    configure_school(client, school_id)
+
+    readable = client.get(
+        f"/schools/{school_id}/configuration",
+        headers={"X-Actor-Role": "VIEWER"},
+    )
+    assert readable.status_code == 200
+
+    forbidden = client.put(
+        f"/schools/{school_id}/configuration",
+        json=readable.json(),
+        headers={"X-Actor-Role": "VIEWER"},
+    )
+    assert forbidden.status_code == 403
+    assert "ADMIN role required" in forbidden.json()["detail"]
+
+
+def test_viewer_cannot_solve_day_plan(client: TestClient) -> None:
+    school_id = create_school(client)
+    configure_school(client, school_id)
+    plan = create_plan(client, school_id)
+
+    response = client.post(
+        f"/schools/{school_id}/day-plans/{plan['id']}/solve",
+        json={"absences": [{"teacher_id": "P02", "slot_ids": ["S1"]}]},
+        headers={"X-Actor-Role": "VIEWER"},
+    )
+    assert response.status_code == 403
+    assert "PLANNER or ADMIN role required" in response.json()["detail"]
+
+
+def test_planner_cannot_reconfigure_or_reopen(client: TestClient) -> None:
+    school_id = create_school(client)
+    configure_school(client, school_id)
+    configuration = client.get(f"/schools/{school_id}/configuration").json()
+
+    forbidden_configuration = client.put(
+        f"/schools/{school_id}/configuration",
+        json=configuration,
+        headers={"X-Actor-Role": "PLANNER"},
+    )
+    assert forbidden_configuration.status_code == 403
+
+    plan = create_plan(client, school_id)
+    assert solve_once(client, school_id, plan["id"], expected_version=1).status_code == 200
+    assert client.post(
+        f"/schools/{school_id}/day-plans/{plan['id']}/confirm",
+        json={"expected_version": 2},
+        headers={"X-Actor-Role": "PLANNER"},
+    ).status_code == 200
+
+    forbidden_reopen = client.post(
+        f"/schools/{school_id}/day-plans/{plan['id']}/reopen",
+        json={"expected_version": 3},
+        headers={"X-Actor-Role": "PLANNER"},
+    )
+    assert forbidden_reopen.status_code == 403
+    assert "ADMIN role required" in forbidden_reopen.json()["detail"]
