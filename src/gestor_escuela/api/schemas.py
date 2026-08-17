@@ -119,10 +119,6 @@ class DayPlanCreateScoped(BaseModel):
     payload: dict[str, object] = Field(default_factory=dict)
 
 
-class DayPlanCreate(DayPlanCreateScoped):
-    school_id: UUID
-
-
 class DayPlanRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
