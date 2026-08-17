@@ -30,6 +30,20 @@ class TeacherProfile(StrEnum):
     MANAGEMENT = "MANAGEMENT"
 
 
+class CandidateStatus(StrEnum):
+    SELECTED = "SELECTED"
+    VALID_ALTERNATIVE = "VALID_ALTERNATIVE"
+    REJECTED = "REJECTED"
+
+
+class CandidateRejectionReason(StrEnum):
+    ABSENT_TEACHER = "ABSENT_TEACHER"
+    ABSENT_IN_SLOT = "ABSENT_IN_SLOT"
+    INCOMPATIBLE_GROUP = "INCOMPATIBLE_GROUP"
+    IMMOVABLE_ACTIVITY = "IMMOVABLE_ACTIVITY"
+    GLOBAL_CONFLICT = "GLOBAL_CONFLICT"
+
+
 @dataclass(frozen=True, slots=True)
 class TimeSlot:
     id: str
@@ -97,6 +111,19 @@ class Substitution:
 
 
 @dataclass(frozen=True, slots=True)
+class CandidateAssessment:
+    activity_id: str
+    slot_id: str
+    group_id: str
+    teacher_id: str
+    status: CandidateStatus
+    penalty: int | None = None
+    displaced_activity_id: str | None = None
+    rejection_reason: CandidateRejectionReason | None = None
+    detail: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class UncoveredActivity:
     activity_id: str
     slot_id: str
@@ -123,6 +150,7 @@ class SolverSolution:
     total_penalty: int
     objective_bound: float
     wall_time_seconds: float
+    candidate_assessments: tuple[CandidateAssessment, ...] = ()
 
     @property
     def coverage_ratio(self) -> float:
