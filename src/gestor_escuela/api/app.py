@@ -8,7 +8,9 @@ from fastapi import Depends, FastAPI, HTTPException, status
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.exc import StaleDataError
 
+from gestor_escuela.api.auth import AdminDep, PlannerDep, ViewerDep
 from gestor_escuela.api.schemas import (
     DayPlanCreate,
     DayPlanEventRead,
@@ -43,7 +45,7 @@ from gestor_escuela.persistence.models import (
 )
 from gestor_escuela.solver.optimizer import SchoolDayOptimizer
 
-app = FastAPI(title="GestorEscuela API", version="0.2.0")
+app = FastAPI(title="GestorEscuela API", version="0.3.0")
 SessionDep = Annotated[Session, Depends(get_session)]
 
 
@@ -53,7 +55,7 @@ def health() -> dict[str, str]:
 
 
 @app.post("/schools", response_model=SchoolRead, status_code=status.HTTP_201_CREATED)
-def create_school(payload: SchoolCreate, session: SessionDep) -> SchoolRow:
+def create_school(payload: SchoolCreate, session: SessionDep, _actor: AdminDep) -> SchoolRow:
     school = SchoolRow(name=payload.name)
     session.add(school)
     session.commit()
@@ -142,6 +144,7 @@ def put_school_configuration(
     school_id: UUID,
     payload: SchoolConfigurationPut,
     session: SessionDep,
+    _actor: AdminDep,
 ) -> dict[str, object]:
     _require_school(school_id, session)
     _validate_configuration(payload)
@@ -209,7 +212,11 @@ def put_school_configuration(
 
 
 @app.get("/schools/{school_id}/configuration")
-def get_school_configuration(school_id: UUID, session: SessionDep) -> dict[str, object]:
+def get_school_configuration(
+    school_id: UUID,
+    session: SessionDep,
+    _actor: ViewerDep,
+) -> dict[str, object]:
     _require_school(school_id, session)
     groups = session.scalars(
         select(SchoolGroupRow).where(SchoolGroupRow.school_id == school_id)
@@ -259,7 +266,7 @@ def get_school_configuration(school_id: UUID, session: SessionDep) -> dict[str, 
 
 
 @app.post("/day-plans", response_model=DayPlanRead, status_code=status.HTTP_201_CREATED)
-def create_day_plan(payload: DayPlanCreate, session: SessionDep) -> DayPlanRow:
+def create_day_plan(payload: DayPlanCreate, session: SessionDep, _actor: PlannerDep) -> DayPlanRow:
     _require_school(payload.school_id, session)
     plan = DayPlanRow(
         school_id=payload.school_id,
@@ -282,7 +289,7 @@ def create_day_plan(payload: DayPlanCreate, session: SessionDep) -> DayPlanRow:
 
 
 @app.get("/day-plans/{plan_id}", response_model=DayPlanRead)
-def get_day_plan(plan_id: UUID, session: SessionDep) -> DayPlanRow:
+def get_day_plan(plan_id: UUID, session: SessionDep, _actor: ViewerDep) -> DayPlanRow:
     plan = session.get(DayPlanRow, plan_id)
     if plan is None:
         raise HTTPException(status_code=404, detail="Day plan not found")
@@ -290,7 +297,12 @@ def get_day_plan(plan_id: UUID, session: SessionDep) -> DayPlanRow:
 
 
 @app.get("/schools/{school_id}/day-plans/{plan_id}", response_model=DayPlanRead)
-def get_school_day_plan(school_id: UUID, plan_id: UUID, session: SessionDep) -> DayPlanRow:
+def get_school_day_plan(
+    school_id: UUID,
+    plan_id: UUID,
+    session: SessionDep,
+    _actor: ViewerDep,
+) -> DayPlanRow:
     return _require_school_day_plan(school_id, plan_id, session)
 
 
@@ -298,6 +310,7 @@ def get_school_day_plan(school_id: UUID, plan_id: UUID, session: SessionDep) -> 
 def list_day_plans(
     school_id: UUID,
     session: SessionDep,
+    _actor: ViewerDep,
     plan_date: date | None = None,
 ) -> list[DayPlanRow]:
     statement = select(DayPlanRow).where(DayPlanRow.school_id == school_id)
@@ -314,6 +327,7 @@ def list_day_plan_runs(
     school_id: UUID,
     plan_id: UUID,
     session: SessionDep,
+    _actor: ViewerDep,
 ) -> list[DayPlanRunRow]:
     _require_school_day_plan(school_id, plan_id, session)
     statement = (
@@ -335,6 +349,7 @@ def list_day_plan_events(
     school_id: UUID,
     plan_id: UUID,
     session: SessionDep,
+    _actor: ViewerDep,
 ) -> list[DayPlanEventRow]:
     _require_school_day_plan(school_id, plan_id, session)
     statement = (
@@ -384,7 +399,7 @@ def _change_plan_status(
     )
     try:
         session.commit()
-    except IntegrityError as exc:
+    except (IntegrityError, StaleDataError) as exc:
         session.rollback()
         raise HTTPException(status_code=409, detail="Concurrent day plan update detected") from exc
     session.refresh(plan)
@@ -397,6 +412,7 @@ def confirm_day_plan(
     plan_id: UUID,
     request: DayPlanLifecycleRequest,
     session: SessionDep,
+    _actor: PlannerDep,
 ) -> DayPlanRow:
     plan = _require_school_day_plan(school_id, plan_id, session)
     return _change_plan_status(
@@ -416,6 +432,7 @@ def reopen_day_plan(
     plan_id: UUID,
     request: DayPlanLifecycleRequest,
     session: SessionDep,
+    _actor: AdminDep,
 ) -> DayPlanRow:
     plan = _require_school_day_plan(school_id, plan_id, session)
     return _change_plan_status(
@@ -477,6 +494,7 @@ def solve_day_plan(
     plan_id: UUID,
     request: DayPlanSolveRequest,
     session: SessionDep,
+    _actor: PlannerDep,
 ) -> DayPlanRow:
     plan = _require_school_day_plan(school_id, plan_id, session)
     if plan.status == DayPlanStatus.CONFIRMED.value:
@@ -570,7 +588,7 @@ def solve_day_plan(
     )
     try:
         session.commit()
-    except IntegrityError as exc:
+    except (IntegrityError, StaleDataError) as exc:
         session.rollback()
         raise HTTPException(status_code=409, detail="Concurrent day plan update detected") from exc
     session.refresh(plan)
