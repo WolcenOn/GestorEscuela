@@ -50,8 +50,44 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("school_id", "user_id", name="uq_membership_school_user"),
     )
+    op.add_column(
+        "day_plan_runs",
+        sa.Column("actor_user_id", postgresql.UUID(as_uuid=True), nullable=True),
+    )
+    op.create_foreign_key(
+        "fk_day_plan_runs_actor_user",
+        "day_plan_runs",
+        "users",
+        ["actor_user_id"],
+        ["id"],
+        ondelete="SET NULL",
+    )
+    op.add_column(
+        "day_plan_events",
+        sa.Column("actor_user_id", postgresql.UUID(as_uuid=True), nullable=True),
+    )
+    op.create_foreign_key(
+        "fk_day_plan_events_actor_user",
+        "day_plan_events",
+        "users",
+        ["actor_user_id"],
+        ["id"],
+        ondelete="SET NULL",
+    )
 
 
 def downgrade() -> None:
+    op.drop_constraint(
+        "fk_day_plan_events_actor_user",
+        "day_plan_events",
+        type_="foreignkey",
+    )
+    op.drop_column("day_plan_events", "actor_user_id")
+    op.drop_constraint(
+        "fk_day_plan_runs_actor_user",
+        "day_plan_runs",
+        type_="foreignkey",
+    )
+    op.drop_column("day_plan_runs", "actor_user_id")
     op.drop_table("school_memberships")
     op.drop_table("users")
