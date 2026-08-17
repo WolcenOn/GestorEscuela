@@ -181,6 +181,7 @@ def put_school_configuration(
                 profile=item.profile.value,
                 substitution_count=item.substitution_count,
                 can_cover_groups=sorted(item.can_cover_groups),
+                specialties=sorted(item.specialties),
                 emergency_only=item.emergency_only,
             )
             for item in payload.teachers
@@ -195,6 +196,7 @@ def put_school_configuration(
                 activity_type=item.activity_type.value,
                 teacher_external_id=item.teacher_id,
                 group_external_id=item.group_id,
+                required_specialty=item.required_specialty,
                 priority=int(item.priority),
                 movable=item.movable,
                 cancelable=item.cancelable,
@@ -247,6 +249,7 @@ def get_school_configuration(
                 "profile": item.profile,
                 "substitution_count": item.substitution_count,
                 "can_cover_groups": item.can_cover_groups,
+                "specialties": item.specialties,
                 "emergency_only": item.emergency_only,
             }
             for item in teachers
@@ -258,6 +261,7 @@ def get_school_configuration(
                 "activity_type": item.activity_type,
                 "teacher_id": item.teacher_external_id,
                 "group_id": item.group_external_id,
+                "required_specialty": item.required_specialty,
                 "priority": item.priority,
                 "movable": item.movable,
                 "cancelable": item.cancelable,
@@ -491,6 +495,7 @@ def _load_solver_inputs(
             emergency_only=item.emergency_only,
             substitutions_last_7_days=recent_counts.get(item.external_id, (0, 0))[0],
             substitutions_last_30_days=recent_counts.get(item.external_id, (0, 0))[1],
+            specialties=frozenset(item.specialties),
         )
         for item in teacher_rows
     )
@@ -504,6 +509,7 @@ def _load_solver_inputs(
             priority=Priority(item.priority),
             movable=item.movable,
             cancelable=item.cancelable,
+            required_specialty=item.required_specialty,
         )
         for item in activity_rows
     )
