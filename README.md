@@ -16,7 +16,7 @@ El proyecto ya dispone de:
 - PostgreSQL como base de datos objetivo y pruebas de integración reales en CI;
 - identidades persistidas y membresías por centro;
 - autorización por membresía cuando se envía `X-Actor-Id`;
-- creación de planes en ruta tenant-scoped.
+- creación de planes únicamente en ruta tenant-scoped.
 
 ## Preparar el entorno en Windows PowerShell
 
@@ -76,13 +76,13 @@ La documentación OpenAPI queda disponible en `/docs` mientras la API está en e
 
 ## Identidad y membresías
 
-Durante esta fase existe un bootstrap provisional mediante `X-Actor-Role`. Se usa únicamente para crear la primera identidad y la primera membresía administrativa. Una vez existe un usuario con membresía, las rutas con `school_id` pueden autorizarse solo con:
+Durante esta fase existe un bootstrap provisional mediante `X-Actor-Role`. Se usa para crear la identidad y membresía administrativa iniciales. Una vez existe un usuario con membresía, las rutas con `school_id` pueden autorizarse con:
 
 ```text
 X-Actor-Id: <UUID_DEL_USUARIO>
 ```
 
-La membresía persistida del usuario en ese centro es la fuente de verdad del rol. Enviar además `X-Actor-Role` no permite elevar privilegios.
+La membresía persistida del usuario en ese centro es la fuente de verdad del rol. Enviar además `X-Actor-Role` no permite elevar privilegios cuando existe identidad.
 
 Flujo de bootstrap actual:
 
@@ -96,13 +96,13 @@ Los roles actuales son:
 - `PLANNER`: creación/cálculo/confirmación de planes;
 - `VIEWER`: lectura.
 
-La creación recomendada de un plan ya está acotada al tenant:
+La creación de planes está acotada al tenant:
 
 ```text
 POST /schools/{school_id}/day-plans
 ```
 
-La ruta global antigua `POST /day-plans` se conserva temporalmente por compatibilidad y se retirará cuando los consumidores hayan migrado.
+No existe una ruta global de creación de `DayPlan`.
 
 ## Importar configuración de un centro desde JSON
 
@@ -156,8 +156,7 @@ compose.yml
 
 ## Deuda técnica actual
 
-- `X-Actor-Role` sigue existiendo como mecanismo de bootstrap y compatibilidad; no es autenticación real.
-- La ruta global antigua `POST /day-plans` sigue temporalmente disponible.
+- `X-Actor-Role` sigue existiendo como mecanismo provisional de bootstrap; no es autenticación real.
 - La compatibilidad docente-grupo sigue siendo binaria; faltan requisitos por materia/perfil.
 - La equidad usa todavía un contador histórico simple, no ventanas semanal/mensual/trimestral.
 - Las explicaciones no enumeran aún el catálogo completo de candidatos descartados.
