@@ -5,192 +5,280 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>GestorEscuela</title>
   <style>
-    :root { font-family: Inter, system-ui, sans-serif; color: #172033; background: #f5f7fb; }
+    :root {
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: #172033;
+      background: #f4f6fa;
+      --bg:#f4f6fa; --panel:#fff; --line:#e2e8f0; --ink:#172033; --muted:#667085;
+      --brand:#3157d5; --brand-soft:#eef2ff; --success:#067647; --danger:#b42318;
+    }
     * { box-sizing: border-box; }
-    body { margin: 0; }
-    header { padding: 24px; background: #172033; color: white; }
-    header h1 { margin: 0 0 6px; font-size: 24px; }
-    header p { margin: 0; opacity: .8; }
-    main { max-width: 1100px; margin: 0 auto; padding: 24px; display: grid; gap: 18px; }
-    section { background: white; border: 1px solid #dde3ee; border-radius: 14px; padding: 18px; }
-    h2 { margin-top: 0; font-size: 18px; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
-    label { display: grid; gap: 6px; font-size: 13px; font-weight: 600; }
-    input, textarea, button { font: inherit; }
-    input, textarea { width: 100%; border: 1px solid #cbd5e1; border-radius: 9px; padding: 10px; background: white; }
-    textarea { min-height: 220px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
-    button { border: 0; border-radius: 9px; padding: 10px 14px; cursor: pointer; font-weight: 700; }
-    .primary { background: #2563eb; color: white; }
-    .secondary { background: #e9eef8; color: #172033; }
-    .danger { background: #fee2e2; color: #991b1b; }
-    .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
-    .status { padding: 10px 12px; border-radius: 9px; background: #eef2ff; margin-top: 12px; white-space: pre-wrap; }
-    .ok { background: #ecfdf5; color: #065f46; }
-    .error { background: #fef2f2; color: #991b1b; }
-    .result-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin: 12px 0; }
-    .metric { padding: 12px; border-radius: 10px; background: #f8fafc; }
-    .metric strong { display: block; font-size: 22px; margin-top: 4px; }
-    table { width: 100%; border-collapse: collapse; font-size: 13px; }
-    th, td { text-align: left; padding: 9px; border-bottom: 1px solid #e5e7eb; vertical-align: top; }
-    .muted { color: #64748b; font-size: 13px; }
-    code { background: #f1f5f9; padding: 2px 5px; border-radius: 5px; }
+    body { margin:0; background:var(--bg); }
+    button,input,select { font:inherit; }
+    button { cursor:pointer; }
+    .shell { min-height:100vh; display:grid; grid-template-columns:230px minmax(0,1fr); }
+    aside { background:#111827; color:white; padding:22px 16px; display:flex; flex-direction:column; gap:22px; }
+    .brand { padding:0 8px; }
+    .brand strong { display:block; font-size:20px; }
+    .brand span { font-size:12px; opacity:.65; }
+    nav { display:grid; gap:6px; }
+    nav button { border:0; text-align:left; border-radius:10px; padding:11px 12px; background:transparent; color:#cbd5e1; font-weight:650; }
+    nav button.active, nav button:hover { background:#263142; color:white; }
+    .workspace-mini { margin-top:auto; padding:12px; border:1px solid #334155; border-radius:12px; font-size:12px; color:#cbd5e1; overflow-wrap:anywhere; }
+    main { min-width:0; }
+    header { height:72px; background:white; border-bottom:1px solid var(--line); padding:0 28px; display:flex; align-items:center; justify-content:space-between; gap:18px; }
+    header h1 { margin:0; font-size:20px; }
+    header p { margin:3px 0 0; color:var(--muted); font-size:13px; }
+    .content { padding:26px; max-width:1450px; margin:0 auto; }
+    .page { display:none; }
+    .page.active { display:block; }
+    .page-head { display:flex; justify-content:space-between; gap:16px; align-items:flex-end; margin-bottom:18px; }
+    .page-head h2 { margin:0; font-size:24px; }
+    .page-head p { margin:5px 0 0; color:var(--muted); }
+    .card { background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:18px; box-shadow:0 1px 2px rgba(16,24,40,.03); }
+    .cards { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; }
+    .metric { padding:16px; }
+    .metric span { display:block; color:var(--muted); font-size:12px; }
+    .metric strong { display:block; font-size:28px; margin-top:5px; }
+    .grid { display:grid; gap:14px; }
+    .grid.two { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .grid.three { grid-template-columns:repeat(3,minmax(0,1fr)); }
+    label { display:grid; gap:6px; font-size:12px; font-weight:700; color:#344054; }
+    input,select { width:100%; border:1px solid #d0d5dd; border-radius:9px; padding:9px 10px; background:white; color:var(--ink); }
+    input[type=checkbox] { width:auto; }
+    .actions { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+    .btn { border:0; border-radius:9px; padding:9px 13px; font-weight:750; background:#eef2f6; color:#344054; }
+    .btn.primary { background:var(--brand); color:white; }
+    .btn.danger { background:#fff1f0; color:var(--danger); }
+    .btn.small { padding:6px 9px; font-size:12px; }
+    .status { margin-top:12px; border-radius:10px; background:#f8fafc; color:var(--muted); padding:10px 12px; font-size:13px; }
+    .status.ok { background:#ecfdf3; color:var(--success); }
+    .status.error { background:#fef3f2; color:var(--danger); }
+    .toolbar { display:flex; gap:10px; align-items:end; flex-wrap:wrap; margin-bottom:14px; }
+    .toolbar label { min-width:180px; }
+    table { width:100%; border-collapse:collapse; font-size:13px; }
+    th,td { padding:10px; border-bottom:1px solid #edf0f4; text-align:left; vertical-align:top; }
+    th { color:#667085; font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
+    .pill { display:inline-flex; align-items:center; border-radius:999px; padding:4px 8px; background:#f2f4f7; font-size:11px; font-weight:700; }
+    .timetable-wrap { overflow:auto; border:1px solid var(--line); border-radius:14px; }
+    .timetable { min-width:900px; table-layout:fixed; }
+    .timetable th:first-child { width:105px; }
+    .slot-cell { min-height:72px; padding:8px; border:1px dashed transparent; border-radius:9px; }
+    .slot-cell:hover { border-color:#a5b4fc; background:#f8faff; }
+    .lesson { background:var(--brand-soft); border-left:3px solid var(--brand); border-radius:8px; padding:7px; margin-bottom:5px; font-size:11px; }
+    .lesson strong { display:block; font-size:12px; }
+    .lesson span { color:#5b6475; }
+    .empty { color:#98a2b3; font-size:12px; }
+    .form-row { display:grid; grid-template-columns:repeat(6,minmax(120px,1fr)); gap:10px; align-items:end; }
+    .section-title { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:12px; }
+    .section-title h3 { margin:0; font-size:16px; }
+    .muted { color:var(--muted); font-size:13px; }
+    .absence { display:grid; grid-template-columns:220px 1fr auto; gap:12px; align-items:start; padding:12px; border:1px solid var(--line); border-radius:12px; margin-bottom:10px; }
+    .slot-checks { display:flex; gap:8px; flex-wrap:wrap; }
+    .slot-checks label { display:flex; flex-direction:row; align-items:center; gap:5px; font-weight:600; background:#f8fafc; border-radius:8px; padding:6px 8px; }
+    .setup { max-width:760px; margin:48px auto; }
+    .setup h2 { font-size:28px; margin-top:0; }
+    .hidden { display:none !important; }
+    @media (max-width:1000px) {
+      .shell { grid-template-columns:1fr; }
+      aside { position:sticky; top:0; z-index:4; flex-direction:row; align-items:center; overflow:auto; padding:10px; }
+      .brand,.workspace-mini { display:none; }
+      nav { display:flex; }
+      nav button { white-space:nowrap; }
+      .cards,.grid.two,.grid.three { grid-template-columns:1fr 1fr; }
+      .form-row { grid-template-columns:1fr 1fr; }
+    }
+    @media (max-width:640px) { .cards,.grid.two,.grid.three,.form-row { grid-template-columns:1fr; } .content{padding:16px;} }
   </style>
 </head>
 <body>
-<header>
-  <h1>GestorEscuela</h1>
-  <p>Consola operativa del motor de ausencias y sustituciones.</p>
-</header>
-<main>
-  <section>
-    <h2>1. Centro y administrador</h2>
-    <p class="muted">La primera vez crea un usuario administrador y un centro. Los identificadores se guardan solo en este navegador.</p>
-    <div class="grid">
-      <label>Nombre<input id="displayName" value="Administrador" /></label>
-      <label>Email<input id="email" type="email" placeholder="admin@centro.es" /></label>
-      <label>Centro<input id="schoolName" placeholder="CEIP Ejemplo" /></label>
-    </div>
-    <div class="actions">
-      <button class="primary" id="bootstrapBtn">Crear espacio de trabajo</button>
-      <button class="danger" id="resetBtn">Olvidar espacio local</button>
-    </div>
-    <div id="workspaceStatus" class="status">Sin espacio de trabajo guardado.</div>
-  </section>
+<div class="shell">
+  <aside>
+    <div class="brand"><strong>GestorEscuela</strong><span>Organización y sustituciones</span></div>
+    <nav id="nav">
+      <button data-page="today" class="active">Hoy</button>
+      <button data-page="schedule">Horario</button>
+      <button data-page="teachers">Docentes</button>
+      <button data-page="groups">Grupos</button>
+      <button data-page="subjects">Asignaturas</button>
+      <button data-page="settings">Franjas</button>
+    </nav>
+    <div class="workspace-mini" id="workspaceMini">Sin centro configurado</div>
+  </aside>
+  <main>
+    <header>
+      <div><h1 id="headerSchool">GestorEscuela</h1><p id="headerMeta">Configura un centro para empezar</p></div>
+      <div class="actions"><button class="btn" id="reloadBtn">Recargar</button><button class="btn primary" id="saveAllBtn">Guardar cambios</button></div>
+    </header>
+    <div class="content">
+      <section id="setup" class="setup card">
+        <h2>Configura tu espacio de trabajo</h2>
+        <p class="muted">Crea el administrador inicial y el centro. Después podrás construir docentes, grupos, asignaturas y el horario semanal.</p>
+        <div class="grid three">
+          <label>Tu nombre<input id="displayName" value="Administrador" /></label>
+          <label>Email<input id="email" type="email" placeholder="admin@centro.es" /></label>
+          <label>Nombre del centro<input id="schoolName" placeholder="CEIP Ejemplo" /></label>
+        </div>
+        <div class="actions" style="margin-top:14px"><button class="btn primary" id="bootstrapBtn">Crear centro</button><button class="btn" id="demoBtn">Usar datos de ejemplo</button></div>
+        <div id="setupStatus" class="status">Pendiente.</div>
+      </section>
 
-  <section>
-    <h2>2. Configuración del centro</h2>
-    <p class="muted">Primera versión: editor JSON validado por la API. Después sustituiremos esto por tablas y formularios visuales.</p>
-    <textarea id="config"></textarea>
-    <div class="actions">
-      <button class="secondary" id="sampleBtn">Cargar ejemplo</button>
-      <button class="primary" id="saveConfigBtn">Guardar configuración</button>
-    </div>
-    <div id="configStatus" class="status">Pendiente.</div>
-  </section>
+      <div id="appPages" class="hidden">
+        <section id="page-today" class="page active">
+          <div class="page-head"><div><h2>Operativa del día</h2><p>Registra ausencias y deja que el motor proponga la cobertura.</p></div></div>
+          <div class="cards">
+            <div class="card metric"><span>Docentes</span><strong id="mTeachers">0</strong></div>
+            <div class="card metric"><span>Grupos</span><strong id="mGroups">0</strong></div>
+            <div class="card metric"><span>Asignaturas</span><strong id="mSubjects">0</strong></div>
+            <div class="card metric"><span>Clases semanales</span><strong id="mLessons">0</strong></div>
+          </div>
+          <div class="card" style="margin-top:14px">
+            <div class="section-title"><h3>Ausencias</h3><button class="btn small" id="addAbsenceBtn">+ Añadir ausencia</button></div>
+            <div class="toolbar"><label>Fecha<input id="planDate" type="date" /></label></div>
+            <div id="absenceList"></div>
+            <div class="actions"><button class="btn primary" id="solveBtn">Calcular sustituciones</button></div>
+            <div id="solveStatus" class="status">Añade al menos una ausencia.</div>
+          </div>
+          <div id="results" style="margin-top:14px"></div>
+        </section>
 
-  <section>
-    <h2>3. Resolver ausencias</h2>
-    <div class="grid">
-      <label>Fecha del plan<input id="planDate" type="date" /></label>
-      <label>Ausencias
-        <input id="absences" placeholder="P01:S1,S2; P04:S3" />
-      </label>
+        <section id="page-schedule" class="page">
+          <div class="page-head"><div><h2>Horario semanal</h2><p>Construye el horario por grupo, asignatura, docente y franja.</p></div></div>
+          <div class="card">
+            <div class="toolbar"><label>Grupo<select id="scheduleGroup"></select></label></div>
+            <div class="timetable-wrap"><table class="timetable"><thead><tr><th>Franja</th><th>Lunes</th><th>Martes</th><th>Miércoles</th><th>Jueves</th><th>Viernes</th></tr></thead><tbody id="scheduleBody"></tbody></table></div>
+          </div>
+          <div class="card" style="margin-top:14px">
+            <div class="section-title"><h3>Añadir o actualizar clase</h3><span class="muted">Una entrada por grupo, día y franja.</span></div>
+            <div class="form-row">
+              <label>Día<select id="lessonDay"><option value="0">Lunes</option><option value="1">Martes</option><option value="2">Miércoles</option><option value="3">Jueves</option><option value="4">Viernes</option></select></label>
+              <label>Franja<select id="lessonSlot"></select></label>
+              <label>Asignatura<select id="lessonSubject"></select></label>
+              <label>Docente<select id="lessonTeacher"></select></label>
+              <label>Tipo<select id="lessonType"><option>CLASS</option><option>SUPPORT</option><option>PT</option><option>AL</option><option>COORDINATION</option><option>RECESS</option></select></label>
+              <button class="btn primary" id="saveLessonBtn">Guardar clase</button>
+            </div>
+          </div>
+        </section>
+
+        <section id="page-teachers" class="page">
+          <div class="page-head"><div><h2>Docentes</h2><p>Perfil, especialidades, grupos compatibles y carga histórica.</p></div></div>
+          <div class="card"><div class="form-row">
+            <label>ID<input id="teacherId" placeholder="P01" /></label><label>Nombre<input id="teacherName" placeholder="Ana García" /></label>
+            <label>Perfil<select id="teacherProfile"><option>TUTOR</option><option>SPECIALIST</option><option>PT</option><option>AL</option><option>SUPPORT</option><option>MANAGEMENT</option></select></label>
+            <label>Especialidades<input id="teacherSpecialties" placeholder="ENGLISH,MUSIC" /></label><label>Sustituciones previas<input id="teacherCount" type="number" min="0" value="0" /></label>
+            <button class="btn primary" id="addTeacherBtn">Añadir / actualizar</button>
+          </div><div id="teacherGroups" class="slot-checks" style="margin-top:12px"></div></div>
+          <div class="card" style="margin-top:14px"><table><thead><tr><th>Docente</th><th>Perfil</th><th>Especialidades</th><th>Puede cubrir</th><th></th></tr></thead><tbody id="teachersBody"></tbody></table></div>
+        </section>
+
+        <section id="page-groups" class="page">
+          <div class="page-head"><div><h2>Grupos</h2><p>Curso/etapa y tutor responsable.</p></div></div>
+          <div class="card"><div class="form-row"><label>ID<input id="groupId" placeholder="1A" /></label><label>Nombre<input id="groupLabel" placeholder="1º A" /></label><label>Etapa / curso<input id="groupStage" placeholder="Primaria · 1º" /></label><label>Tutor<select id="groupTutor"></select></label><button class="btn primary" id="addGroupBtn">Añadir / actualizar</button></div></div>
+          <div class="card" style="margin-top:14px"><table><thead><tr><th>Grupo</th><th>Etapa</th><th>Tutor</th><th></th></tr></thead><tbody id="groupsBody"></tbody></table></div>
+        </section>
+
+        <section id="page-subjects" class="page">
+          <div class="page-head"><div><h2>Asignaturas</h2><p>Catálogo común y especialidad obligatoria cuando corresponda.</p></div></div>
+          <div class="card"><div class="form-row"><label>ID<input id="subjectId" placeholder="MAT" /></label><label>Nombre<input id="subjectLabel" placeholder="Matemáticas" /></label><label>Especialidad requerida<input id="subjectSpecialty" placeholder="vacío si no aplica" /></label><button class="btn primary" id="addSubjectBtn">Añadir / actualizar</button></div></div>
+          <div class="card" style="margin-top:14px"><table><thead><tr><th>Asignatura</th><th>Especialidad requerida</th><th></th></tr></thead><tbody id="subjectsBody"></tbody></table></div>
+        </section>
+
+        <section id="page-settings" class="page">
+          <div class="page-head"><div><h2>Franjas horarias</h2><p>Define los periodos diarios que utiliza el horario.</p></div></div>
+          <div class="card"><div class="form-row"><label>ID<input id="slotId" placeholder="S1" /></label><label>Etiqueta<input id="slotLabel" placeholder="09:00–10:00" /></label><label>Orden<input id="slotOrder" type="number" min="1" value="1" /></label><button class="btn primary" id="addSlotBtn">Añadir / actualizar</button></div></div>
+          <div class="card" style="margin-top:14px"><table><thead><tr><th>Orden</th><th>Franja</th><th></th></tr></thead><tbody id="slotsBody"></tbody></table></div>
+          <div class="actions" style="margin-top:14px"><button class="btn danger" id="resetBtn">Olvidar centro en este navegador</button></div>
+        </section>
+      </div>
     </div>
-    <p class="muted">Formato: <code>DOCENTE:FRANJA,FRANJA; OTRO:FRANJA</code>.</p>
-    <div class="actions"><button class="primary" id="solveBtn">Calcular sustituciones</button></div>
-    <div id="solveStatus" class="status">Pendiente.</div>
-    <div id="results"></div>
-  </section>
-</main>
+  </main>
+</div>
 <script>
-const sampleConfig = {
-  groups: [{id: "G1", label: "Grupo 1"}, {id: "G2", label: "Grupo 2"}],
-  time_slots: [{id: "S1", label: "09:00", order: 1}, {id: "S2", label: "10:00", order: 2}],
-  teachers: [
-    {id: "P01", profile: "TUTOR", substitution_count: 0, can_cover_groups: ["G1", "G2"], specialties: [], emergency_only: false},
-    {id: "P02", profile: "SUPPORT", substitution_count: 0, can_cover_groups: ["G1", "G2"], specialties: [], emergency_only: false},
-    {id: "P03", profile: "SPECIALIST", substitution_count: 1, can_cover_groups: ["G1", "G2"], specialties: ["ENGLISH"], emergency_only: false}
+const $ = id => document.getElementById(id);
+const stateKey = "gestorEscuelaWorkspace";
+const plansKey = "gestorEscuelaPlans";
+const weekdays = ["Lunes","Martes","Miércoles","Jueves","Viernes"];
+let config = {groups:[],subjects:[],time_slots:[],teachers:[],activities:[]};
+let absences = [];
+const workspace = () => JSON.parse(localStorage.getItem(stateKey) || "null");
+const plans = () => JSON.parse(localStorage.getItem(plansKey) || "{}");
+const esc = value => String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[c]));
+
+function headers(scoped=true){ const w=workspace(); if(!w) return {"Content-Type":"application/json","X-Actor-Role":"ADMIN"}; return scoped?{"Content-Type":"application/json","X-Actor-Id":w.actorId}:{"Content-Type":"application/json","X-Actor-Id":w.actorId,"X-Actor-Role":"ADMIN"}; }
+async function request(url,options={}){ const r=await fetch(url,options); const body=await r.json().catch(()=>({})); if(!r.ok) throw new Error(body.detail?JSON.stringify(body.detail):`${r.status} ${r.statusText}`); return body; }
+function status(id,text,kind=""){ const el=$(id); el.textContent=text; el.className=`status ${kind}`.trim(); }
+function csv(v){ return v.split(",").map(x=>x.trim()).filter(Boolean); }
+function idify(v){ return v.trim().toUpperCase().replace(/[^A-Z0-9_-]+/g,"-"); }
+
+function showApp(){ const w=workspace(); $("setup").classList.toggle("hidden",!!w); $("appPages").classList.toggle("hidden",!w); $("headerSchool").textContent=w?.schoolName||"GestorEscuela"; $("headerMeta").textContent=w?"Planificación, horario y sustituciones":"Configura un centro para empezar"; $("workspaceMini").textContent=w?`${w.schoolName}\n${w.schoolId}`:"Sin centro configurado"; }
+function navTo(page){ document.querySelectorAll(".page").forEach(x=>x.classList.remove("active")); document.querySelectorAll("nav button").forEach(x=>x.classList.toggle("active",x.dataset.page===page)); $(`page-${page}`).classList.add("active"); if(page==="schedule") renderSchedule(); }
+$("nav").onclick=e=>{ if(e.target.dataset.page) navTo(e.target.dataset.page); };
+
+const demoConfig = {
+  groups:[{id:"1A",label:"1º A",stage:"Primaria · 1º",tutor_teacher_id:"P01"},{id:"2A",label:"2º A",stage:"Primaria · 2º",tutor_teacher_id:"P02"}],
+  subjects:[{id:"MAT",label:"Matemáticas",required_specialty:null},{id:"LEN",label:"Lengua",required_specialty:null},{id:"ENG",label:"Inglés",required_specialty:"ENGLISH"}],
+  time_slots:[{id:"S1",label:"09:00–10:00",order:1},{id:"S2",label:"10:00–11:00",order:2},{id:"S3",label:"11:30–12:30",order:3}],
+  teachers:[
+    {id:"P01",display_name:"Ana García",profile:"TUTOR",substitution_count:1,can_cover_groups:["1A","2A"],specialties:[],emergency_only:false},
+    {id:"P02",display_name:"Luis Martín",profile:"TUTOR",substitution_count:0,can_cover_groups:["1A","2A"],specialties:[],emergency_only:false},
+    {id:"P03",display_name:"Marta López",profile:"SPECIALIST",substitution_count:0,can_cover_groups:["1A","2A"],specialties:["ENGLISH"],emergency_only:false},
+    {id:"P04",display_name:"Apoyo",profile:"SUPPORT",substitution_count:0,can_cover_groups:["1A","2A"],specialties:[],emergency_only:false}
   ],
-  activities: [
-    {id: "A-G1-S1", slot_id: "S1", activity_type: "CLASS", teacher_id: "P01", group_id: "G1", priority: 30, movable: false, cancelable: false},
-    {id: "A-P02-S1", slot_id: "S1", activity_type: "SUPPORT", teacher_id: "P02", group_id: null, priority: 10, movable: true, cancelable: true},
-    {id: "A-P03-S1", slot_id: "S1", activity_type: "COORDINATION", teacher_id: "P03", group_id: null, priority: 10, movable: true, cancelable: true},
-    {id: "A-G2-S2", slot_id: "S2", activity_type: "CLASS", teacher_id: "P01", group_id: "G2", priority: 30, movable: false, cancelable: false}
+  activities:[
+    {id:"A-1A-0-S1",weekday:0,slot_id:"S1",activity_type:"CLASS",teacher_id:"P01",group_id:"1A",subject_id:"MAT",required_specialty:null,priority:30,movable:false,cancelable:false},
+    {id:"A-1A-0-S2",weekday:0,slot_id:"S2",activity_type:"CLASS",teacher_id:"P03",group_id:"1A",subject_id:"ENG",required_specialty:"ENGLISH",priority:30,movable:false,cancelable:false},
+    {id:"A-2A-0-S1",weekday:0,slot_id:"S1",activity_type:"CLASS",teacher_id:"P02",group_id:"2A",subject_id:"LEN",required_specialty:null,priority:30,movable:false,cancelable:false},
+    {id:"A-P04-0-S1",weekday:0,slot_id:"S1",activity_type:"SUPPORT",teacher_id:"P04",group_id:null,subject_id:null,required_specialty:null,priority:10,movable:true,cancelable:true}
   ]
 };
 
-const stateKey = "gestorEscuelaWorkspace";
-const plansKey = "gestorEscuelaPlans";
-const $ = (id) => document.getElementById(id);
-const state = () => JSON.parse(localStorage.getItem(stateKey) || "null");
-const plans = () => JSON.parse(localStorage.getItem(plansKey) || "{}");
+async function loadConfig(){ const w=workspace(); if(!w) return; try{ const data=await request(`/schools/${w.schoolId}/academic-configuration`,{headers:headers(true)}); config={groups:data.groups||[],subjects:data.subjects||[],time_slots:data.time_slots||[],teachers:data.teachers||[],activities:data.activities||[]}; }catch(e){ if(config.teachers.length===0) config=structuredClone(demoConfig); } renderAll(); }
+async function saveConfig(){ const w=workspace(); if(!w) return; try{ await request(`/schools/${w.schoolId}/academic-configuration`,{method:"PUT",headers:headers(true),body:JSON.stringify(config)}); $("headerMeta").textContent="Cambios guardados"; setTimeout(()=>$("headerMeta").textContent="Planificación, horario y sustituciones",1800); }catch(e){ alert(`No se pudo guardar: ${e.message}`); } }
 
-function setStatus(id, text, kind="") {
-  const el = $(id); el.textContent = text; el.className = `status ${kind}`.trim();
+function options(items,value,label,blank="—"){ return `<option value="">${blank}</option>`+items.map(x=>`<option value="${esc(x[value])}">${esc(x[label]||x[value])}</option>`).join(""); }
+function renderAll(){
+  $("mTeachers").textContent=config.teachers.length; $("mGroups").textContent=config.groups.length; $("mSubjects").textContent=config.subjects.length; $("mLessons").textContent=config.activities.filter(x=>x.activity_type==="CLASS").length;
+  $("teachersBody").innerHTML=config.teachers.map(t=>`<tr><td><strong>${esc(t.display_name||t.id)}</strong><br><span class="muted">${esc(t.id)}</span></td><td><span class="pill">${esc(t.profile)}</span></td><td>${esc((t.specialties||[]).join(", ")||"—")}</td><td>${esc((t.can_cover_groups||[]).join(", ")||"—")}</td><td><button class="btn small danger" onclick="removeTeacher('${esc(t.id)}')">Eliminar</button></td></tr>`).join("");
+  $("groupsBody").innerHTML=config.groups.map(g=>`<tr><td><strong>${esc(g.label)}</strong><br><span class="muted">${esc(g.id)}</span></td><td>${esc(g.stage||"—")}</td><td>${esc(teacherName(g.tutor_teacher_id))}</td><td><button class="btn small danger" onclick="removeGroup('${esc(g.id)}')">Eliminar</button></td></tr>`).join("");
+  $("subjectsBody").innerHTML=config.subjects.map(s=>`<tr><td><strong>${esc(s.label)}</strong><br><span class="muted">${esc(s.id)}</span></td><td>${esc(s.required_specialty||"—")}</td><td><button class="btn small danger" onclick="removeSubject('${esc(s.id)}')">Eliminar</button></td></tr>`).join("");
+  $("slotsBody").innerHTML=[...config.time_slots].sort((a,b)=>a.order-b.order).map(s=>`<tr><td>${s.order}</td><td><strong>${esc(s.label)}</strong><br><span class="muted">${esc(s.id)}</span></td><td><button class="btn small danger" onclick="removeSlot('${esc(s.id)}')">Eliminar</button></td></tr>`).join("");
+  $("groupTutor").innerHTML=options(config.teachers,"id","display_name");
+  $("scheduleGroup").innerHTML=options(config.groups,"id","label","Selecciona grupo");
+  $("lessonSlot").innerHTML=options([...config.time_slots].sort((a,b)=>a.order-b.order),"id","label","Selecciona franja");
+  $("lessonSubject").innerHTML=options(config.subjects,"id","label","Selecciona asignatura");
+  $("lessonTeacher").innerHTML=options(config.teachers,"id","display_name","Selecciona docente");
+  $("teacherGroups").innerHTML=config.groups.map(g=>`<label><input type="checkbox" value="${esc(g.id)}">${esc(g.label)}</label>`).join("");
+  renderAbsences(); renderSchedule();
 }
-function authHeaders(scoped=true) {
-  const s = state();
-  if (!s) return {"Content-Type":"application/json", "X-Actor-Role":"ADMIN"};
-  return scoped
-    ? {"Content-Type":"application/json", "X-Actor-Id":s.actorId}
-    : {"Content-Type":"application/json", "X-Actor-Id":s.actorId, "X-Actor-Role":"ADMIN"};
-}
-async function request(url, options={}) {
-  const response = await fetch(url, options);
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.detail ? JSON.stringify(body.detail) : `${response.status} ${response.statusText}`);
-  return body;
-}
-function renderWorkspace() {
-  const s = state();
-  if (!s) return setStatus("workspaceStatus", "Sin espacio de trabajo guardado.");
-  setStatus("workspaceStatus", `Centro: ${s.schoolName}\nSchool ID: ${s.schoolId}\nActor ID: ${s.actorId}`, "ok");
-}
-function parseAbsences(text) {
-  return text.split(";").map(x => x.trim()).filter(Boolean).map(item => {
-    const [teacher, slots] = item.split(":");
-    if (!teacher || !slots) throw new Error(`Ausencia inválida: ${item}`);
-    return {teacher_id: teacher.trim(), slot_ids: slots.split(",").map(s => s.trim()).filter(Boolean)};
-  });
-}
+function teacherName(id){ const t=config.teachers.find(x=>x.id===id); return t?(t.display_name||t.id):(id||"—"); }
+function subjectName(id){ const s=config.subjects.find(x=>x.id===id); return s?s.label:(id||"—"); }
 
-$("bootstrapBtn").onclick = async () => {
-  try {
-    const email = $("email").value.trim(); const displayName = $("displayName").value.trim(); const schoolName = $("schoolName").value.trim();
-    if (!email || !displayName || !schoolName) throw new Error("Completa nombre, email y centro.");
-    setStatus("workspaceStatus", "Creando usuario...");
-    const user = await request("/users", {method:"POST", headers:{"Content-Type":"application/json","X-Actor-Role":"ADMIN"}, body:JSON.stringify({email, display_name:displayName})});
-    setStatus("workspaceStatus", "Creando centro...");
-    const school = await request("/schools", {method:"POST", headers:{"Content-Type":"application/json","X-Actor-Id":user.id,"X-Actor-Role":"ADMIN"}, body:JSON.stringify({name:schoolName})});
-    setStatus("workspaceStatus", "Asignando administrador...");
-    await request(`/schools/${school.id}/memberships`, {method:"PUT", headers:{"Content-Type":"application/json","X-Actor-Role":"ADMIN"}, body:JSON.stringify({user_id:user.id, role:"ADMIN"})});
-    localStorage.setItem(stateKey, JSON.stringify({actorId:user.id, schoolId:school.id, schoolName:school.name}));
-    renderWorkspace();
-  } catch (e) { setStatus("workspaceStatus", e.message, "error"); }
-};
-$("resetBtn").onclick = () => { localStorage.removeItem(stateKey); localStorage.removeItem(plansKey); renderWorkspace(); };
-$("sampleBtn").onclick = () => { $("config").value = JSON.stringify(sampleConfig, null, 2); };
-$("saveConfigBtn").onclick = async () => {
-  try {
-    const s = state(); if (!s) throw new Error("Primero crea el espacio de trabajo.");
-    const payload = JSON.parse($("config").value);
-    await request(`/schools/${s.schoolId}/configuration`, {method:"PUT", headers:authHeaders(true), body:JSON.stringify(payload)});
-    setStatus("configStatus", "Configuración guardada correctamente.", "ok");
-  } catch (e) { setStatus("configStatus", e.message, "error"); }
-};
-$("solveBtn").onclick = async () => {
-  try {
-    const s = state(); if (!s) throw new Error("Primero crea el espacio de trabajo.");
-    const planDate = $("planDate").value; if (!planDate) throw new Error("Selecciona una fecha.");
-    const absences = parseAbsences($("absences").value); if (!absences.length) throw new Error("Indica al menos una ausencia.");
-    const knownPlans = plans(); let planId = knownPlans[planDate];
-    if (!planId) {
-      setStatus("solveStatus", "Creando plan del día...");
-      const plan = await request(`/schools/${s.schoolId}/day-plans`, {method:"POST", headers:authHeaders(true), body:JSON.stringify({plan_date:planDate, payload:{}})});
-      planId = plan.id; knownPlans[planDate] = planId; localStorage.setItem(plansKey, JSON.stringify(knownPlans));
-    }
-    setStatus("solveStatus", "Ejecutando optimizador...");
-    const solved = await request(`/schools/${s.schoolId}/day-plans/${planId}/solve`, {method:"POST", headers:authHeaders(true), body:JSON.stringify({absences})});
-    setStatus("solveStatus", `Plan resuelto. Versión ${solved.version}.`, "ok");
-    renderResults(solved.payload.solution || {});
-  } catch (e) { setStatus("solveStatus", e.message, "error"); }
-};
-function renderResults(solution) {
-  const substitutions = solution.substitutions || []; const uncovered = solution.uncovered || []; const assessments = solution.candidate_assessments || [];
-  const coverage = Math.round((solution.coverage_ratio || 0) * 100);
-  let html = `<div class="result-grid"><div class="metric">Cobertura<strong>${coverage}%</strong></div><div class="metric">Puntuación<strong>${solution.score ?? "-"}</strong></div><div class="metric">Sustituciones<strong>${substitutions.length}</strong></div><div class="metric">Sin cubrir<strong>${uncovered.length}</strong></div></div>`;
-  html += `<h3>Sustituciones propuestas</h3><table><thead><tr><th>Franja</th><th>Grupo</th><th>Ausente</th><th>Sustituto</th><th>Coste</th></tr></thead><tbody>`;
-  html += substitutions.map(x => `<tr><td>${x.slot_id}</td><td>${x.group_id}</td><td>${x.absent_teacher_id}</td><td><strong>${x.substitute_teacher_id}</strong></td><td>${x.penalty}</td></tr>`).join("") || `<tr><td colspan="5">Sin sustituciones.</td></tr>`;
-  html += `</tbody></table>`;
-  if (uncovered.length) html += `<h3>Sin cobertura</h3><ul>${uncovered.map(x => `<li>${x.group_id} · ${x.slot_id}: ${x.reason}</li>`).join("")}</ul>`;
-  const rejected = assessments.filter(x => x.status === "REJECTED");
-  if (rejected.length) html += `<h3>Por qué se descartaron candidatos</h3><table><thead><tr><th>Actividad</th><th>Docente</th><th>Motivo</th></tr></thead><tbody>${rejected.map(x => `<tr><td>${x.activity_id}</td><td>${x.teacher_id}</td><td>${x.detail || x.rejection_reason || "-"}</td></tr>`).join("")}</tbody></table>`;
-  $("results").innerHTML = html;
-}
+$("addTeacherBtn").onclick=()=>{ const id=idify($("teacherId").value); if(!id) return; const row={id,display_name:$("teacherName").value.trim()||id,profile:$("teacherProfile").value,substitution_count:Number($("teacherCount").value||0),can_cover_groups:[...document.querySelectorAll("#teacherGroups input:checked")].map(x=>x.value),specialties:csv($("teacherSpecialties").value),emergency_only:false}; config.teachers=config.teachers.filter(x=>x.id!==id).concat(row); renderAll(); };
+$("addGroupBtn").onclick=()=>{ const id=idify($("groupId").value); if(!id) return; const row={id,label:$("groupLabel").value.trim()||id,stage:$("groupStage").value.trim()||null,tutor_teacher_id:$("groupTutor").value||null}; config.groups=config.groups.filter(x=>x.id!==id).concat(row); config.teachers=config.teachers.map(t=>({...t,can_cover_groups:[...(t.can_cover_groups||[]).filter(g=>config.groups.some(x=>x.id===g))]})); renderAll(); };
+$("addSubjectBtn").onclick=()=>{ const id=idify($("subjectId").value); if(!id) return; const row={id,label:$("subjectLabel").value.trim()||id,required_specialty:$("subjectSpecialty").value.trim()||null}; config.subjects=config.subjects.filter(x=>x.id!==id).concat(row); renderAll(); };
+$("addSlotBtn").onclick=()=>{ const id=idify($("slotId").value); if(!id) return; const row={id,label:$("slotLabel").value.trim()||id,order:Number($("slotOrder").value||1)}; config.time_slots=config.time_slots.filter(x=>x.id!==id).concat(row); renderAll(); };
+window.removeTeacher=id=>{ config.teachers=config.teachers.filter(x=>x.id!==id); config.activities=config.activities.filter(x=>x.teacher_id!==id); renderAll(); };
+window.removeGroup=id=>{ config.groups=config.groups.filter(x=>x.id!==id); config.activities=config.activities.filter(x=>x.group_id!==id); config.teachers=config.teachers.map(t=>({...t,can_cover_groups:(t.can_cover_groups||[]).filter(g=>g!==id)})); renderAll(); };
+window.removeSubject=id=>{ config.subjects=config.subjects.filter(x=>x.id!==id); config.activities=config.activities.filter(x=>x.subject_id!==id); renderAll(); };
+window.removeSlot=id=>{ config.time_slots=config.time_slots.filter(x=>x.id!==id); config.activities=config.activities.filter(x=>x.slot_id!==id); renderAll(); };
 
-$("config").value = JSON.stringify(sampleConfig, null, 2);
-$("planDate").value = new Date().toISOString().slice(0,10);
-renderWorkspace();
+$("saveLessonBtn").onclick=()=>{ const group=$("scheduleGroup").value, day=Number($("lessonDay").value), slot=$("lessonSlot").value, subject=$("lessonSubject").value, teacher=$("lessonTeacher").value, type=$("lessonType").value; if(!group||!slot||!teacher) return alert("Selecciona grupo, franja y docente."); const subj=config.subjects.find(x=>x.id===subject); const id=`A-${group}-${day}-${slot}`; const row={id,weekday:day,slot_id:slot,activity_type:type,teacher_id:teacher,group_id:group,subject_id:subject||null,required_specialty:subj?.required_specialty||null,priority:type==="CLASS"?30:10,movable:type!=="CLASS",cancelable:type!=="CLASS"}; config.activities=config.activities.filter(x=>x.id!==id).concat(row); renderSchedule(); };
+$("scheduleGroup").onchange=renderSchedule;
+function renderSchedule(){ const group=$("scheduleGroup")?.value||config.groups[0]?.id||""; if($("scheduleGroup") && !$("scheduleGroup").value && group) $("scheduleGroup").value=group; const slots=[...config.time_slots].sort((a,b)=>a.order-b.order); $("scheduleBody").innerHTML=slots.map(slot=>`<tr><th>${esc(slot.label)}</th>${weekdays.map((_,day)=>{ const rows=config.activities.filter(a=>a.group_id===group&&a.weekday===day&&a.slot_id===slot.id); return `<td><div class="slot-cell" onclick="prefillLesson(${day},'${esc(slot.id)}')">${rows.length?rows.map(a=>`<div class="lesson"><strong>${esc(subjectName(a.subject_id))}</strong><span>${esc(teacherName(a.teacher_id))} · ${esc(a.activity_type)}</span></div>`).join(""):`<span class="empty">+ Añadir</span>`}</div></td>`; }).join("")}</tr>`).join(""); }
+window.prefillLesson=(day,slot)=>{ $("lessonDay").value=day; $("lessonSlot").value=slot; const group=$("scheduleGroup").value; const a=config.activities.find(x=>x.group_id===group&&x.weekday===day&&x.slot_id===slot); if(a){$("lessonSubject").value=a.subject_id||"";$("lessonTeacher").value=a.teacher_id;$("lessonType").value=a.activity_type;} };
+
+$("addAbsenceBtn").onclick=()=>{ absences.push({teacher_id:config.teachers[0]?.id||"",slot_ids:[]}); renderAbsences(); };
+function renderAbsences(){ $("absenceList").innerHTML=absences.map((a,i)=>`<div class="absence"><select onchange="setAbsTeacher(${i},this.value)">${config.teachers.map(t=>`<option value="${esc(t.id)}" ${t.id===a.teacher_id?"selected":""}>${esc(t.display_name||t.id)}</option>`).join("")}</select><div class="slot-checks">${[...config.time_slots].sort((x,y)=>x.order-y.order).map(s=>`<label><input type="checkbox" ${a.slot_ids.includes(s.id)?"checked":""} onchange="toggleAbsSlot(${i},'${esc(s.id)}',this.checked)">${esc(s.label)}</label>`).join("")}</div><button class="btn small danger" onclick="removeAbs(${i})">Quitar</button></div>`).join("")||`<p class="muted">No hay ausencias registradas.</p>`; }
+window.setAbsTeacher=(i,v)=>{absences[i].teacher_id=v;}; window.toggleAbsSlot=(i,s,on)=>{absences[i].slot_ids=on?[...new Set([...absences[i].slot_ids,s])]:absences[i].slot_ids.filter(x=>x!==s);}; window.removeAbs=i=>{absences.splice(i,1);renderAbsences();};
+$("solveBtn").onclick=async()=>{ try{ const w=workspace(); const planDate=$("planDate").value; const valid=absences.filter(a=>a.teacher_id&&a.slot_ids.length); if(!valid.length) throw new Error("Selecciona al menos un docente y una franja."); const known=plans(); let planId=known[planDate]; if(!planId){ status("solveStatus","Creando plan del día..."); const p=await request(`/schools/${w.schoolId}/day-plans`,{method:"POST",headers:headers(true),body:JSON.stringify({plan_date:planDate,payload:{}})}); planId=p.id; known[planDate]=planId; localStorage.setItem(plansKey,JSON.stringify(known)); } status("solveStatus","Calculando la mejor cobertura..."); const solved=await request(`/schools/${w.schoolId}/day-plans/${planId}/solve-academic`,{method:"POST",headers:headers(true),body:JSON.stringify({absences:valid})}); status("solveStatus",`Plan resuelto · versión ${solved.version}`,"ok"); renderResults(solved.payload.solution||{}); }catch(e){ status("solveStatus",e.message,"error"); } };
+function renderResults(sol){ const subs=sol.substitutions||[], unc=sol.uncovered||[], rej=(sol.candidate_assessments||[]).filter(x=>x.status==="REJECTED"); const coverage=Math.round((sol.coverage_ratio||0)*100); $("results").innerHTML=`<div class="cards"><div class="card metric"><span>Cobertura</span><strong>${coverage}%</strong></div><div class="card metric"><span>Puntuación</span><strong>${sol.score??"—"}</strong></div><div class="card metric"><span>Sustituciones</span><strong>${subs.length}</strong></div><div class="card metric"><span>Sin cubrir</span><strong>${unc.length}</strong></div></div><div class="card" style="margin-top:14px"><div class="section-title"><h3>Propuesta</h3></div><table><thead><tr><th>Franja</th><th>Grupo</th><th>Ausente</th><th>Sustituto</th></tr></thead><tbody>${subs.map(x=>`<tr><td>${esc(x.slot_id)}</td><td>${esc(x.group_id)}</td><td>${esc(teacherName(x.absent_teacher_id))}</td><td><strong>${esc(teacherName(x.substitute_teacher_id))}</strong></td></tr>`).join("")||`<tr><td colspan="4">No se requieren sustituciones.</td></tr>`}</tbody></table>${unc.length?`<p class="status error">${unc.map(x=>`${esc(x.group_id)} · ${esc(x.slot_id)}: ${esc(x.reason)}`).join("<br>")}</p>`:""}${rej.length?`<details style="margin-top:12px"><summary>Ver ${rej.length} candidatos descartados</summary><table><tbody>${rej.map(x=>`<tr><td>${esc(teacherName(x.teacher_id))}</td><td>${esc(x.detail||x.rejection_reason)}</td></tr>`).join("")}</tbody></table></details>`:""}</div>`; }
+
+$("bootstrapBtn").onclick=async()=>{ try{ const email=$("email").value.trim(), display=$("displayName").value.trim(), schoolName=$("schoolName").value.trim(); if(!email||!display||!schoolName) throw new Error("Completa los tres campos."); status("setupStatus","Creando usuario..."); const user=await request("/users",{method:"POST",headers:{"Content-Type":"application/json","X-Actor-Role":"ADMIN"},body:JSON.stringify({email,display_name:display})}); const school=await request("/schools",{method:"POST",headers:{"Content-Type":"application/json","X-Actor-Id":user.id,"X-Actor-Role":"ADMIN"},body:JSON.stringify({name:schoolName})}); await request(`/schools/${school.id}/memberships`,{method:"PUT",headers:{"Content-Type":"application/json","X-Actor-Role":"ADMIN"},body:JSON.stringify({user_id:user.id,role:"ADMIN"})}); localStorage.setItem(stateKey,JSON.stringify({actorId:user.id,schoolId:school.id,schoolName:school.name})); config=structuredClone(demoConfig); await saveConfig(); showApp(); renderAll(); }catch(e){status("setupStatus",e.message,"error");} };
+$("demoBtn").onclick=()=>{ config=structuredClone(demoConfig); status("setupStatus","Datos de ejemplo preparados. Crea el centro para guardarlos.","ok"); };
+$("saveAllBtn").onclick=saveConfig; $("reloadBtn").onclick=loadConfig; $("resetBtn").onclick=()=>{localStorage.removeItem(stateKey);localStorage.removeItem(plansKey);location.reload();};
+$("planDate").value=new Date().toISOString().slice(0,10);
+showApp(); if(workspace()) loadConfig(); else renderAll();
 </script>
 </body>
 </html>
