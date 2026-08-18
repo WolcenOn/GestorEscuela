@@ -46,12 +46,26 @@ def _validate_configuration(
         raise HTTPException(status_code=422, detail="Scheduled activity ids must be unique")
 
     known_teachers = _teacher_ids(school_id, session)
-    for item in [*payload.recess_shifts, *payload.scheduled_activities]:
-        unknown = set(item.assigned_teacher_ids) - known_teachers
+    for recess_item in payload.recess_shifts:
+        unknown = recess_item.assigned_teacher_ids - known_teachers
         if unknown:
             raise HTTPException(
                 status_code=422,
-                detail=f"{item.id} references unknown teachers: {sorted(unknown)}",
+                detail=(
+                    f"{recess_item.id} references unknown teachers: "
+                    f"{sorted(unknown)}"
+                ),
+            )
+
+    for activity_item in payload.scheduled_activities:
+        unknown = activity_item.assigned_teacher_ids - known_teachers
+        if unknown:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"{activity_item.id} references unknown teachers: "
+                    f"{sorted(unknown)}"
+                ),
             )
 
 
@@ -72,40 +86,40 @@ def put_operations_configuration(
         )
     )
 
-    for item in payload.recess_shifts:
+    for recess_item in payload.recess_shifts:
         session.add(
             SchoolRecessShiftRow(
                 school_id=school_id,
-                external_id=item.id,
-                label=item.label,
-                weekday=item.weekday,
-                start_time=item.start_time,
-                end_time=item.end_time,
-                location=item.location,
-                required_staff=item.required_staff,
-                assigned_teacher_ids=sorted(item.assigned_teacher_ids),
-                active=item.active,
-                notes=item.notes,
+                external_id=recess_item.id,
+                label=recess_item.label,
+                weekday=recess_item.weekday,
+                start_time=recess_item.start_time,
+                end_time=recess_item.end_time,
+                location=recess_item.location,
+                required_staff=recess_item.required_staff,
+                assigned_teacher_ids=sorted(recess_item.assigned_teacher_ids),
+                active=recess_item.active,
+                notes=recess_item.notes,
             )
         )
 
-    for item in payload.scheduled_activities:
+    for activity_item in payload.scheduled_activities:
         session.add(
             SchoolScheduledActivityRow(
                 school_id=school_id,
-                external_id=item.id,
-                label=item.label,
-                category=item.category,
-                weekday=item.weekday,
-                activity_date=item.activity_date,
-                start_time=item.start_time,
-                end_time=item.end_time,
-                location=item.location,
-                required_staff=item.required_staff,
-                assigned_teacher_ids=sorted(item.assigned_teacher_ids),
-                movable=item.movable,
-                cancelable=item.cancelable,
-                notes=item.notes,
+                external_id=activity_item.id,
+                label=activity_item.label,
+                category=activity_item.category,
+                weekday=activity_item.weekday,
+                activity_date=activity_item.activity_date,
+                start_time=activity_item.start_time,
+                end_time=activity_item.end_time,
+                location=activity_item.location,
+                required_staff=activity_item.required_staff,
+                assigned_teacher_ids=sorted(activity_item.assigned_teacher_ids),
+                movable=activity_item.movable,
+                cancelable=activity_item.cancelable,
+                notes=activity_item.notes,
             )
         )
 
