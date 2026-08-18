@@ -1,6 +1,13 @@
 from __future__ import annotations
 
-from gestor_escuela.domain.models import Activity, SolverSolution, Teacher
+from collections import defaultdict
+
+from gestor_escuela.domain.models import (
+    Activity,
+    CandidateStatus,
+    SolverSolution,
+    Teacher,
+)
 
 
 def explain_solution(
@@ -11,6 +18,10 @@ def explain_solution(
 ) -> tuple[str, ...]:
     teachers_by_id = {teacher.id: teacher for teacher in teachers}
     activities_by_id = {activity.id: activity for activity in activities}
+    assessments_by_activity = defaultdict(list)
+    for assessment in solution.candidate_assessments:
+        assessments_by_activity[assessment.activity_id].append(assessment)
+
     lines: list[str] = []
 
     for substitution in solution.substitutions:
@@ -18,6 +29,10 @@ def explain_solution(
         reasons = [
             "está disponible y es compatible con el grupo",
             f"lleva {teacher.substitution_count} sustituciones previas",
+            (
+                f"carga reciente: {teacher.substitutions_last_7_days} en 7 días y "
+                f"{teacher.substitutions_last_30_days} en 30 días"
+            ),
         ]
         if substitution.displaced_activity_id:
             displaced = activities_by_id[substitution.displaced_activity_id]
@@ -27,11 +42,39 @@ def explain_solution(
             )
         else:
             reasons.append("no necesita abandonar otra actividad")
+
+        valid_alternatives = sorted(
+            (
+                assessment
+                for assessment in assessments_by_activity[substitution.activity_id]
+                if assessment.status is CandidateStatus.VALID_ALTERNATIVE
+                and assessment.penalty is not None
+            ),
+            key=lambda item: (item.penalty or 0, item.teacher_id),
+        )
+        comparison = ""
+        if valid_alternatives:
+            best = valid_alternatives[0]
+            comparison = (
+                f" La mejor alternativa no elegida era {best.teacher_id} "
+                f"con coste {best.penalty}, frente a {substitution.penalty} del elegido."
+            )
+
         lines.append(
             f"{substitution.substitute_teacher_id} sustituye a "
             f"{substitution.absent_teacher_id} en {substitution.group_id} "
-            f"({substitution.slot_id}) porque " + "; ".join(reasons) + "."
+            f"({substitution.slot_id}) porque " + "; ".join(reasons) + "." + comparison
         )
+
+        for assessment in assessments_by_activity[substitution.activity_id]:
+            if assessment.status is not CandidateStatus.REJECTED:
+                continue
+            rejection_detail = (
+                assessment.detail
+                or assessment.rejection_reason
+                or "restricción no satisfecha"
+            )
+            lines.append(f"- {assessment.teacher_id} descartado: {rejection_detail}.")
 
     for item in solution.uncovered:
         lines.append(f"{item.group_id} queda sin cobertura en {item.slot_id}: {item.reason}")

@@ -30,6 +30,21 @@ class TeacherProfile(StrEnum):
     MANAGEMENT = "MANAGEMENT"
 
 
+class CandidateStatus(StrEnum):
+    SELECTED = "SELECTED"
+    VALID_ALTERNATIVE = "VALID_ALTERNATIVE"
+    REJECTED = "REJECTED"
+
+
+class CandidateRejectionReason(StrEnum):
+    ABSENT_TEACHER = "ABSENT_TEACHER"
+    ABSENT_IN_SLOT = "ABSENT_IN_SLOT"
+    INCOMPATIBLE_GROUP = "INCOMPATIBLE_GROUP"
+    MISSING_SPECIALTY = "MISSING_SPECIALTY"
+    IMMOVABLE_ACTIVITY = "IMMOVABLE_ACTIVITY"
+    GLOBAL_CONFLICT = "GLOBAL_CONFLICT"
+
+
 @dataclass(frozen=True, slots=True)
 class TimeSlot:
     id: str
@@ -44,6 +59,9 @@ class Teacher:
     substitution_count: int = 0
     can_cover_groups: frozenset[str] = field(default_factory=frozenset)
     emergency_only: bool = False
+    substitutions_last_7_days: int = 0
+    substitutions_last_30_days: int = 0
+    specialties: frozenset[str] = field(default_factory=frozenset)
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,6 +80,7 @@ class Activity:
     priority: Priority = Priority.NORMAL
     movable: bool = False
     cancelable: bool = False
+    required_specialty: str | None = None
 
     @property
     def requires_group_coverage(self) -> bool:
@@ -97,6 +116,39 @@ class Substitution:
 
 
 @dataclass(frozen=True, slots=True)
+class CandidatePenaltyBreakdown:
+    historical_total: int = 0
+    recent_7_days: int = 0
+    recent_30_days: int = 0
+    emergency: int = 0
+    displacement: int = 0
+
+    @property
+    def total(self) -> int:
+        return (
+            self.historical_total
+            + self.recent_7_days
+            + self.recent_30_days
+            + self.emergency
+            + self.displacement
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class CandidateAssessment:
+    activity_id: str
+    slot_id: str
+    group_id: str
+    teacher_id: str
+    status: CandidateStatus
+    penalty: int | None = None
+    penalty_breakdown: CandidatePenaltyBreakdown | None = None
+    displaced_activity_id: str | None = None
+    rejection_reason: CandidateRejectionReason | None = None
+    detail: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class UncoveredActivity:
     activity_id: str
     slot_id: str
@@ -112,6 +164,8 @@ class SolverWeights:
     displacement_normal: int = 800
     displacement_high: int = 5_000
     substitution_history: int = 30
+    recent_substitution_7_days: int = 120
+    recent_substitution_30_days: int = 30
     emergency_teacher: int = 2_000
     pt_al_displacement_multiplier: int = 5
 
@@ -123,6 +177,7 @@ class SolverSolution:
     total_penalty: int
     objective_bound: float
     wall_time_seconds: float
+    candidate_assessments: tuple[CandidateAssessment, ...] = ()
 
     @property
     def coverage_ratio(self) -> float:

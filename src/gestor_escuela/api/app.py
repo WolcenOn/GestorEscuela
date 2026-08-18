@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import date
+from collections import defaultdict
+from datetime import date, timedelta
 from typing import Annotated
 from uuid import UUID
 
@@ -45,7 +46,7 @@ from gestor_escuela.persistence.models import (
 )
 from gestor_escuela.solver.optimizer import SchoolDayOptimizer
 
-app = FastAPI(title="GestorEscuela API", version="0.3.0")
+app = FastAPI(title="GestorEscuela API", version="0.4.0")
 SessionDep = Annotated[Session, Depends(get_session)]
 app.include_router(management_router)
 
@@ -180,6 +181,7 @@ def put_school_configuration(
                 profile=item.profile.value,
                 substitution_count=item.substitution_count,
                 can_cover_groups=sorted(item.can_cover_groups),
+                specialties=sorted(item.specialties),
                 emergency_only=item.emergency_only,
             )
             for item in payload.teachers
@@ -194,6 +196,7 @@ def put_school_configuration(
                 activity_type=item.activity_type.value,
                 teacher_external_id=item.teacher_id,
                 group_external_id=item.group_id,
+                required_specialty=item.required_specialty,
                 priority=int(item.priority),
                 movable=item.movable,
                 cancelable=item.cancelable,
@@ -246,6 +249,7 @@ def get_school_configuration(
                 "profile": item.profile,
                 "substitution_count": item.substitution_count,
                 "can_cover_groups": item.can_cover_groups,
+                "specialties": item.specialties,
                 "emergency_only": item.emergency_only,
             }
             for item in teachers
@@ -257,6 +261,7 @@ def get_school_configuration(
                 "activity_type": item.activity_type,
                 "teacher_id": item.teacher_external_id,
                 "group_id": item.group_external_id,
+                "required_specialty": item.required_specialty,
                 "priority": item.priority,
                 "movable": item.movable,
                 "cancelable": item.cancelable,
@@ -420,8 +425,52 @@ def reopen_day_plan(
     )
 
 
+def _recent_substitution_counts(
+    school_id: UUID,
+    plan_date: date,
+    session: Session,
+) -> dict[str, tuple[int, int]]:
+    cutoff_30 = plan_date - timedelta(days=30)
+    cutoff_7 = plan_date - timedelta(days=7)
+    rows = session.execute(
+        select(DayPlanRunRow, DayPlanRow.plan_date)
+        .join(DayPlanRow, DayPlanRow.id == DayPlanRunRow.day_plan_id)
+        .where(
+            DayPlanRunRow.school_id == school_id,
+            DayPlanRow.plan_date >= cutoff_30,
+            DayPlanRow.plan_date < plan_date,
+        )
+    ).all()
+
+    latest_by_plan: dict[UUID, tuple[DayPlanRunRow, date]] = {}
+    for run, historical_date in rows:
+        current = latest_by_plan.get(run.day_plan_id)
+        if current is None or run.version > current[0].version:
+            latest_by_plan[run.day_plan_id] = (run, historical_date)
+
+    counts_7: defaultdict[str, int] = defaultdict(int)
+    counts_30: defaultdict[str, int] = defaultdict(int)
+    for run, historical_date in latest_by_plan.values():
+        substitutions = run.output_payload.get("substitutions", [])
+        if not isinstance(substitutions, list):
+            continue
+        for item in substitutions:
+            if not isinstance(item, dict):
+                continue
+            teacher_id = item.get("substitute_teacher_id")
+            if not isinstance(teacher_id, str):
+                continue
+            counts_30[teacher_id] += 1
+            if historical_date >= cutoff_7:
+                counts_7[teacher_id] += 1
+
+    teacher_ids = set(counts_7) | set(counts_30)
+    return {teacher_id: (counts_7[teacher_id], counts_30[teacher_id]) for teacher_id in teacher_ids}
+
+
 def _load_solver_inputs(
     school_id: UUID,
+    plan_date: date,
     session: Session,
 ) -> tuple[tuple[Teacher, ...], tuple[Activity, ...]]:
     teacher_rows = session.scalars(
@@ -436,6 +485,7 @@ def _load_solver_inputs(
             detail="School configuration is incomplete; teachers and activities are required",
         )
 
+    recent_counts = _recent_substitution_counts(school_id, plan_date, session)
     teachers = tuple(
         Teacher(
             id=item.external_id,
@@ -443,6 +493,9 @@ def _load_solver_inputs(
             substitution_count=item.substitution_count,
             can_cover_groups=frozenset(item.can_cover_groups),
             emergency_only=item.emergency_only,
+            substitutions_last_7_days=recent_counts.get(item.external_id, (0, 0))[0],
+            substitutions_last_30_days=recent_counts.get(item.external_id, (0, 0))[1],
+            specialties=frozenset(item.specialties),
         )
         for item in teacher_rows
     )
@@ -456,6 +509,7 @@ def _load_solver_inputs(
             priority=Priority(item.priority),
             movable=item.movable,
             cancelable=item.cancelable,
+            required_specialty=item.required_specialty,
         )
         for item in activity_rows
     )
@@ -486,7 +540,7 @@ def solve_day_plan(
         LockedSubstitution(item.activity_id, item.substitute_teacher_id)
         for item in request.locked_substitutions
     )
-    teachers, activities = _load_solver_inputs(school_id, session)
+    teachers, activities = _load_solver_inputs(school_id, plan.plan_date, session)
     try:
         solution = SchoolDayOptimizer().solve(
             teachers=teachers,
@@ -509,6 +563,13 @@ def solve_day_plan(
             }
             for item in locked
         ],
+        "fairness_history": {
+            teacher.id: {
+                "substitutions_last_7_days": teacher.substitutions_last_7_days,
+                "substitutions_last_30_days": teacher.substitutions_last_30_days,
+            }
+            for teacher in teachers
+        },
     }
     output_payload: dict[str, object] = {
         "coverage_ratio": solution.coverage_ratio,
@@ -536,6 +597,34 @@ def solve_day_plan(
                 "reason": item.reason,
             }
             for item in solution.uncovered
+        ],
+        "candidate_assessments": [
+            {
+                "activity_id": item.activity_id,
+                "slot_id": item.slot_id,
+                "group_id": item.group_id,
+                "teacher_id": item.teacher_id,
+                "status": item.status.value,
+                "penalty": item.penalty,
+                "penalty_breakdown": (
+                    {
+                        "historical_total": item.penalty_breakdown.historical_total,
+                        "recent_7_days": item.penalty_breakdown.recent_7_days,
+                        "recent_30_days": item.penalty_breakdown.recent_30_days,
+                        "emergency": item.penalty_breakdown.emergency,
+                        "displacement": item.penalty_breakdown.displacement,
+                        "total": item.penalty_breakdown.total,
+                    }
+                    if item.penalty_breakdown is not None
+                    else None
+                ),
+                "displaced_activity_id": item.displaced_activity_id,
+                "rejection_reason": (
+                    item.rejection_reason.value if item.rejection_reason is not None else None
+                ),
+                "detail": item.detail,
+            }
+            for item in solution.candidate_assessments
         ],
     }
 

@@ -111,6 +111,9 @@ class SchoolTeacherRow(Base):
     can_cover_groups: Mapped[list[str]] = mapped_column(
         JSON().with_variant(JSONB(), "postgresql"), nullable=False, default=list
     )
+    specialties: Mapped[list[str]] = mapped_column(
+        JSON().with_variant(JSONB(), "postgresql"), nullable=False, default=list
+    )
     emergency_only: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
 
@@ -129,6 +132,7 @@ class SchoolActivityRow(Base):
     activity_type: Mapped[str] = mapped_column(String(32), nullable=False)
     teacher_external_id: Mapped[str] = mapped_column(String(64), nullable=False)
     group_external_id: Mapped[str | None] = mapped_column(String(64))
+    required_specialty: Mapped[str | None] = mapped_column(String(64))
     priority: Mapped[int] = mapped_column(Integer, nullable=False)
     movable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     cancelable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
