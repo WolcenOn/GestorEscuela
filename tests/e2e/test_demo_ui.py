@@ -29,7 +29,10 @@ def test_complete_demo_can_solve_prepared_absence(page: Page) -> None:
     group_select = page.locator("#scheduleGroup")
     for group_id in ("1A", "1B", "2A", "2B", "3A", "4A"):
         group_select.select_option(group_id)
-        expect(page.locator("#scheduleBody .lesson")).to_have_count(30)
+        timetable_cells = page.locator("#scheduleBody .slot-cell")
+        expect(timetable_cells).to_have_count(30)
+        for cell_index in range(30):
+            expect(timetable_cells.nth(cell_index).locator(".lesson").first).to_be_visible()
 
     expect(page.get_by_role("button", name="Cargar demo completo")).to_be_visible()
 
