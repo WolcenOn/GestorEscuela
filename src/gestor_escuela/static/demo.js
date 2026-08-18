@@ -5,18 +5,25 @@
   const oldDemoButton = document.getElementById("demoBtn");
   if (oldDemoButton) oldDemoButton.classList.add("hidden");
 
-  const actions = setup.querySelector(".actions");
+  const setupActions = setup.querySelector(".actions");
   const button = document.createElement("button");
   button.id = "completeDemoBtn";
   button.className = "btn primary";
   button.textContent = "Probar centro demo completo";
-  actions?.prepend(button);
+  setupActions?.prepend(button);
+
+  const headerActions = document.querySelector("header .actions");
+  const restoreButton = document.createElement("button");
+  restoreButton.id = "restoreDemoBtn";
+  restoreButton.className = "btn";
+  restoreButton.textContent = "Cargar demo completo";
+  headerActions?.prepend(restoreButton);
 
   const hint = document.createElement("p");
   hint.className = "muted";
   hint.textContent =
     "Crea automáticamente un centro de ejemplo con horario semanal completo y una ausencia preparada para probar el motor.";
-  actions?.insertAdjacentElement("afterend", hint);
+  setupActions?.insertAdjacentElement("afterend", hint);
 
   const groupDefs = [
     ["1A", "1º A", "Primaria · 1º", "P01"],
@@ -139,23 +146,65 @@
       ["SUP-4", 3, "S5", "SUPPORT", "P12", null, 10],
       ["COORD", 4, "S6", "COORDINATION", "P13", null, 10],
     ];
-    supportActivities.forEach(([id, weekday, slot_id, activity_type, teacher_id, group_id, priority]) => {
-      activities.push({
-        id,
-        weekday,
-        slot_id,
-        activity_type,
-        teacher_id,
-        group_id,
-        subject_id: null,
-        required_specialty: activity_type === "PT" ? "PT" : activity_type === "AL" ? "AL" : null,
-        priority,
-        movable: activity_type === "SUPPORT" || activity_type === "COORDINATION",
-        cancelable: activity_type === "SUPPORT" || activity_type === "COORDINATION",
-      });
-    });
+    supportActivities.forEach(
+      ([id, weekday, slot_id, activity_type, teacher_id, group_id, priority]) => {
+        activities.push({
+          id,
+          weekday,
+          slot_id,
+          activity_type,
+          teacher_id,
+          group_id,
+          subject_id: null,
+          required_specialty:
+            activity_type === "PT" ? "PT" : activity_type === "AL" ? "AL" : null,
+          priority,
+          movable: activity_type === "SUPPORT" || activity_type === "COORDINATION",
+          cancelable: activity_type === "SUPPORT" || activity_type === "COORDINATION",
+        });
+      },
+    );
 
     return {groups, subjects, time_slots: timeSlots, teachers, activities};
+  }
+
+  function prepareDemoView() {
+    absences = [{teacher_id: "P01", slot_ids: ["S2"]}];
+    document.getElementById("planDate").value = schoolDayISO();
+    showApp();
+    renderAll();
+    navTo("schedule");
+    document.getElementById("scheduleGroup").value = "1A";
+    renderSchedule();
+    document.getElementById("headerMeta").textContent =
+      "Demo completa cargada · 6 grupos con 30 clases semanales cada uno";
+  }
+
+  async function saveDemoConfiguration(schoolId, actorId) {
+    config = buildDemoConfig();
+    await request(`/schools/${schoolId}/academic-configuration`, {
+      method: "PUT",
+      headers: {"Content-Type": "application/json", "X-Actor-Id": actorId},
+      body: JSON.stringify(config),
+    });
+    prepareDemoView();
+  }
+
+  async function restoreDemoWorkspace() {
+    const current = workspace();
+    if (!current) {
+      await createDemoWorkspace();
+      return;
+    }
+    try {
+      restoreButton.disabled = true;
+      document.getElementById("headerMeta").textContent = "Cargando demo completa...";
+      await saveDemoConfiguration(current.schoolId, current.actorId);
+    } catch (error) {
+      alert(`No se pudo cargar la demo: ${error.message}`);
+    } finally {
+      restoreButton.disabled = false;
+    }
   }
 
   async function createDemoWorkspace() {
@@ -190,20 +239,7 @@
         stateKey,
         JSON.stringify({actorId: user.id, schoolId: school.id, schoolName: school.name}),
       );
-      config = buildDemoConfig();
-      await request(`/schools/${school.id}/academic-configuration`, {
-        method: "PUT",
-        headers: {"Content-Type": "application/json", "X-Actor-Id": user.id},
-        body: JSON.stringify(config),
-      });
-
-      absences = [{teacher_id: "P01", slot_ids: ["S2"]}];
-      document.getElementById("planDate").value = schoolDayISO();
-      showApp();
-      renderAll();
-      navTo("today");
-      document.getElementById("headerMeta").textContent =
-        "Centro demo completo · puedes calcular la ausencia preparada";
+      await saveDemoConfiguration(school.id, user.id);
     } catch (error) {
       status("setupStatus", error.message, "error");
       button.disabled = false;
@@ -211,4 +247,5 @@
   }
 
   button.addEventListener("click", createDemoWorkspace);
+  restoreButton.addEventListener("click", restoreDemoWorkspace);
 })();

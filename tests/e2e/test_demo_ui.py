@@ -20,15 +20,21 @@ def test_complete_demo_can_solve_prepared_absence(page: Page) -> None:
 
     page.get_by_role("button", name="Probar centro demo completo").click()
 
-    expect(page.get_by_role("heading", name="Operativa del día")).to_be_visible()
+    expect(page.get_by_role("heading", name="Horario semanal")).to_be_visible()
     expect(page.locator("#mTeachers")).to_have_text("13")
     expect(page.locator("#mGroups")).to_have_text("6")
     expect(page.locator("#mSubjects")).to_have_text("7")
     expect(page.locator("#mLessons")).to_have_text("180")
 
-    page.get_by_role("button", name="Horario").click()
-    expect(page.get_by_role("heading", name="Horario semanal")).to_be_visible()
-    expect(page.locator("#scheduleBody .lesson").first).to_be_visible()
+    group_select = page.locator("#scheduleGroup")
+    for group_id in ("1A", "1B", "2A", "2B", "3A", "4A"):
+        group_select.select_option(group_id)
+        timetable_cells = page.locator("#scheduleBody .slot-cell")
+        expect(timetable_cells).to_have_count(30)
+        for cell_index in range(30):
+            expect(timetable_cells.nth(cell_index).locator(".lesson").first).to_be_visible()
+
+    expect(page.get_by_role("button", name="Cargar demo completo")).to_be_visible()
 
     page.get_by_role("button", name="Hoy").click()
     absence = page.locator("#absenceList .absence").first
