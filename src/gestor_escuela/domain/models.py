@@ -33,6 +33,7 @@ class TeacherProfile(StrEnum):
 class CandidateStatus(StrEnum):
     SELECTED = "SELECTED"
     VALID_ALTERNATIVE = "VALID_ALTERNATIVE"
+    WARNING_ALTERNATIVE = "WARNING_ALTERNATIVE"
     REJECTED = "REJECTED"
 
 
@@ -122,6 +123,7 @@ class CandidatePenaltyBreakdown:
     recent_30_days: int = 0
     emergency: int = 0
     displacement: int = 0
+    specialty_mismatch: int = 0
 
     @property
     def total(self) -> int:
@@ -131,6 +133,7 @@ class CandidatePenaltyBreakdown:
             + self.recent_30_days
             + self.emergency
             + self.displacement
+            + self.specialty_mismatch
         )
 
 
@@ -146,6 +149,7 @@ class CandidateAssessment:
     displaced_activity_id: str | None = None
     rejection_reason: CandidateRejectionReason | None = None
     detail: str | None = None
+    warning: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -167,6 +171,7 @@ class SolverWeights:
     recent_substitution_7_days: int = 120
     recent_substitution_30_days: int = 30
     emergency_teacher: int = 2_000
+    specialty_mismatch: int = 12_000
     pt_al_displacement_multiplier: int = 5
 
 
