@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import os
 
-from playwright.sync_api import Page, expect
 import pytest
+from playwright.sync_api import Page, expect
 
 
 pytestmark = pytest.mark.e2e
