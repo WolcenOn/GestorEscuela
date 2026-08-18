@@ -77,6 +77,23 @@ class SchoolGroupRow(Base):
     )
     external_id: Mapped[str] = mapped_column(String(64), nullable=False)
     label: Mapped[str] = mapped_column(String(120), nullable=False)
+    stage: Mapped[str | None] = mapped_column(String(80))
+    tutor_teacher_external_id: Mapped[str | None] = mapped_column(String(64))
+
+
+class SchoolSubjectRow(Base):
+    __tablename__ = "school_subjects"
+    __table_args__ = (
+        UniqueConstraint("school_id", "external_id", name="uq_subject_school_external"),
+    )
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    school_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("schools.id", ondelete="CASCADE"), nullable=False
+    )
+    external_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    label: Mapped[str] = mapped_column(String(120), nullable=False)
+    required_specialty: Mapped[str | None] = mapped_column(String(64))
 
 
 class SchoolTimeSlotRow(Base):
@@ -106,6 +123,7 @@ class SchoolTeacherRow(Base):
         PG_UUID(as_uuid=True), ForeignKey("schools.id", ondelete="CASCADE"), nullable=False
     )
     external_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    display_name: Mapped[str | None] = mapped_column(String(160))
     profile: Mapped[str] = mapped_column(String(32), nullable=False)
     substitution_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     can_cover_groups: Mapped[list[str]] = mapped_column(
@@ -128,10 +146,12 @@ class SchoolActivityRow(Base):
         PG_UUID(as_uuid=True), ForeignKey("schools.id", ondelete="CASCADE"), nullable=False
     )
     external_id: Mapped[str] = mapped_column(String(96), nullable=False)
+    weekday: Mapped[int | None] = mapped_column(Integer)
     slot_external_id: Mapped[str] = mapped_column(String(64), nullable=False)
     activity_type: Mapped[str] = mapped_column(String(32), nullable=False)
     teacher_external_id: Mapped[str] = mapped_column(String(64), nullable=False)
     group_external_id: Mapped[str | None] = mapped_column(String(64))
+    subject_external_id: Mapped[str | None] = mapped_column(String(64))
     required_specialty: Mapped[str | None] = mapped_column(String(64))
     priority: Mapped[int] = mapped_column(Integer, nullable=False)
     movable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
