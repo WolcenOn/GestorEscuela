@@ -40,7 +40,7 @@ def test_complete_demo_can_solve_prepared_absence(page: Page) -> None:
     expect(page.get_by_role("heading", name="Recreos")).to_be_visible()
     expect(page.get_by_role("button", name="Añadir / actualizar turno")).to_be_visible()
 
-    page.get_by_role("button", name="Actividades").click()
+    page.get_by_role("button", name="Actividades", exact=True).click()
     expect(page.get_by_role("heading", name="Actividades")).to_be_visible()
     expect(page.get_by_role("button", name="Añadir / actualizar actividad")).to_be_visible()
 
