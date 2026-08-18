@@ -36,6 +36,7 @@ def test_operator_can_configure_school_and_solve_absence(page: Page) -> None:
     expect(page.locator("#scheduleBody .lesson").first).to_be_visible()
 
     page.get_by_role("button", name="Hoy").click()
+    page.locator("#planDate").fill("2026-08-17")
     page.get_by_role("button", name="+ Añadir ausencia").click()
 
     absence = page.locator("#absenceList .absence").first
