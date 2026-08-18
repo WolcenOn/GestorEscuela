@@ -32,7 +32,7 @@ from gestor_escuela.persistence.models import (
     SchoolTeacherRow,
     SchoolTimeSlotRow,
 )
-from gestor_escuela.solver.optimizer import SchoolDayOptimizer
+from gestor_escuela.solver.flexible_specialty import FlexibleSpecialtySchoolDayOptimizer
 
 router = APIRouter()
 
@@ -109,7 +109,6 @@ def put_academic_configuration(
 ) -> dict[str, object]:
     _require_school(school_id, session)
     _validate_configuration(payload)
-    subject_specialties = {item.id: item.required_specialty for item in payload.subjects}
 
     session.execute(delete(SchoolActivityRow).where(SchoolActivityRow.school_id == school_id))
     session.execute(delete(SchoolSubjectRow).where(SchoolSubjectRow.school_id == school_id))
@@ -131,17 +130,6 @@ def put_academic_configuration(
     )
     session.add_all(
         [
-            SchoolSubjectRow(
-                school_id=school_id,
-                external_id=item.id,
-                label=item.label,
-                required_specialty=item.required_specialty,
-            )
-            for item in payload.subjects
-        ]
-    )
-    session.add_all(
-        [
             SchoolTimeSlotRow(
                 school_id=school_id,
                 external_id=item.id,
@@ -149,6 +137,17 @@ def put_academic_configuration(
                 slot_order=item.order,
             )
             for item in payload.time_slots
+        ]
+    )
+    session.add_all(
+        [
+            SchoolSubjectRow(
+                school_id=school_id,
+                external_id=item.id,
+                label=item.label,
+                required_specialty=item.required_specialty,
+            )
+            for item in payload.subjects
         ]
     )
     session.add_all(
@@ -166,16 +165,17 @@ def put_academic_configuration(
             for item in payload.teachers
         ]
     )
+    subject_specialties = {item.id: item.required_specialty for item in payload.subjects}
     session.add_all(
         [
             SchoolActivityRow(
                 school_id=school_id,
                 external_id=item.id,
-                weekday=item.weekday,
                 slot_external_id=item.slot_id,
                 activity_type=item.activity_type.value,
                 teacher_external_id=item.teacher_id,
                 group_external_id=item.group_id,
+                weekday=item.weekday,
                 subject_external_id=item.subject_id,
                 required_specialty=(
                     item.required_specialty
@@ -409,7 +409,7 @@ def solve_academic_day_plan(
     )
     teachers, activities = _solver_inputs(school_id, plan.plan_date, session)
     try:
-        solution = SchoolDayOptimizer().solve(
+        solution = FlexibleSpecialtySchoolDayOptimizer().solve(
             teachers=teachers,
             activities=activities,
             absences=absences,
