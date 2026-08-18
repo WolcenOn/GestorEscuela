@@ -4,22 +4,15 @@ from pathlib import Path
 
 from fastapi.responses import FileResponse, HTMLResponse
 
-from gestor_escuela.api import academic
 from gestor_escuela.api.academic import router as academic_router
 from gestor_escuela.api.app import app
 from gestor_escuela.api.operations import router as operations_router
-from gestor_escuela.solver.flexible_specialty import FlexibleSpecialtySchoolDayOptimizer
 
 _STATIC_DIR = Path(__file__).with_name("static")
 _UI_FILE = _STATIC_DIR / "index.html"
 _DEMO_FILE = _STATIC_DIR / "demo.js"
 _OPERATIONS_FILE = _STATIC_DIR / "operations.js"
 _PHASE9_FILE = _STATIC_DIR / "phase9.js"
-
-# Production academic solves use the small-school policy: ordinary specialist classes may
-# fall back to a warned, heavily penalized non-specialist candidate. The base solver stays
-# available for strict-domain tests and future per-school policy configuration.
-academic.SchoolDayOptimizer = FlexibleSpecialtySchoolDayOptimizer
 
 app.include_router(academic_router)
 app.include_router(operations_router)
