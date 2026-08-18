@@ -5,7 +5,6 @@ import os
 import pytest
 from playwright.sync_api import Page, expect
 
-
 pytestmark = pytest.mark.e2e
 
 
