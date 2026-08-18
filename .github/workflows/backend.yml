@@ -12,7 +12,7 @@ permissions:
 jobs:
   quality:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     env:
       DATABASE_URL: postgresql+psycopg://gestor:gestor@localhost:5432/gestor_escuela
       TEST_DATABASE_URL: postgresql+psycopg://gestor:gestor@localhost:5432/gestor_escuela
@@ -49,7 +49,7 @@ jobs:
         run: alembic upgrade head
 
       - name: Tests
-        run: python -m pytest
+        run: python -m pytest -m "not e2e"
 
       - name: Ruff
         run: ruff check .
@@ -59,3 +59,33 @@ jobs:
 
       - name: Solver smoke test
         run: python simulate.py
+
+      - name: Install Chromium for Playwright
+        run: python -m playwright install --with-deps chromium
+
+      - name: Start web application
+        run: |
+          PYTHONPATH=src python -m uvicorn gestor_escuela.web:app --host 127.0.0.1 --port 8000 > /tmp/gestor-escuela.log 2>&1 &
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:8000/health > /dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/gestor-escuela.log
+          exit 1
+
+      - name: Playwright E2E
+        env:
+          PLAYWRIGHT_BASE_URL: http://127.0.0.1:8000
+        run: >-
+          python -m pytest -m e2e --browser chromium
+          --tracing=retain-on-failure --output=test-results
+
+      - name: Upload Playwright traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: test-results/
+          if-no-files-found: ignore

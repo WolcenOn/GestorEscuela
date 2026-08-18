@@ -19,6 +19,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "pytest>=8.3,<9",
+  "pytest-playwright>=0.7,<1",
   "ruff>=0.9,<1",
   "mypy>=1.14,<2",
   "httpx>=0.28,<1",
@@ -30,6 +31,9 @@ where = ["src"]
 [tool.pytest.ini_options]
 addopts = "-q"
 testpaths = ["tests"]
+markers = [
+  "e2e: browser-based end-to-end tests",
+]
 
 [tool.ruff]
 line-length = 100
