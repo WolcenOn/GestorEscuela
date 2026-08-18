@@ -22,11 +22,20 @@ class VersionedSession(Session):
             raise IntegrityError("Concurrent update", None, exc) from exc
 
 
+def normalize_database_url(url: str) -> str:
+    if url.startswith("postgres://"):
+        return "postgresql+psycopg://" + url.removeprefix("postgres://")
+    if url.startswith("postgresql://"):
+        return "postgresql+psycopg://" + url.removeprefix("postgresql://")
+    return url
+
+
 def database_url() -> str:
-    return os.getenv(
+    configured = os.getenv(
         "DATABASE_URL",
         "postgresql+psycopg://gestor:gestor@localhost:5432/gestor_escuela",
     )
+    return normalize_database_url(configured)
 
 
 engine = create_engine(database_url(), pool_pre_ping=True)
