@@ -53,6 +53,14 @@ class SchoolMembershipRead(BaseModel):
 class GroupConfig(BaseModel):
     id: str = Field(min_length=1, max_length=64)
     label: str = Field(min_length=1, max_length=120)
+    stage: str | None = Field(default=None, max_length=80)
+    tutor_teacher_id: str | None = Field(default=None, max_length=64)
+
+
+class SubjectConfig(BaseModel):
+    id: str = Field(min_length=1, max_length=64)
+    label: str = Field(min_length=1, max_length=120)
+    required_specialty: str | None = Field(default=None, max_length=64)
 
 
 class TimeSlotConfig(BaseModel):
@@ -63,6 +71,7 @@ class TimeSlotConfig(BaseModel):
 
 class TeacherConfig(BaseModel):
     id: str = Field(min_length=1, max_length=64)
+    display_name: str | None = Field(default=None, max_length=160)
     profile: TeacherProfile
     substitution_count: int = Field(default=0, ge=0)
     can_cover_groups: set[str] = Field(default_factory=set)
@@ -72,10 +81,12 @@ class TeacherConfig(BaseModel):
 
 class ActivityConfig(BaseModel):
     id: str = Field(min_length=1, max_length=96)
+    weekday: int | None = Field(default=None, ge=0, le=4)
     slot_id: str = Field(min_length=1, max_length=64)
     activity_type: ActivityType
     teacher_id: str = Field(min_length=1, max_length=64)
     group_id: str | None = Field(default=None, max_length=64)
+    subject_id: str | None = Field(default=None, max_length=64)
     required_specialty: str | None = Field(default=None, max_length=64)
     priority: Priority = Priority.NORMAL
     movable: bool = False
@@ -84,6 +95,7 @@ class ActivityConfig(BaseModel):
 
 class SchoolConfigurationPut(BaseModel):
     groups: list[GroupConfig] = Field(min_length=1)
+    subjects: list[SubjectConfig] = Field(default_factory=list)
     time_slots: list[TimeSlotConfig] = Field(min_length=1)
     teachers: list[TeacherConfig] = Field(min_length=1)
     activities: list[ActivityConfig] = Field(min_length=1)
