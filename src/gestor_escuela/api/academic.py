@@ -192,7 +192,10 @@ def put_academic_configuration(
         session.commit()
     except IntegrityError as exc:
         session.rollback()
-        raise HTTPException(status_code=409, detail="Invalid or duplicate school configuration") from exc
+        raise HTTPException(
+            status_code=409,
+            detail="Invalid or duplicate school configuration",
+        ) from exc
     return {"school_id": school_id, "status": "configured"}
 
 
@@ -203,7 +206,9 @@ def get_academic_configuration(
     _actor: ViewerDep,
 ) -> dict[str, object]:
     _require_school(school_id, session)
-    groups = session.scalars(select(SchoolGroupRow).where(SchoolGroupRow.school_id == school_id)).all()
+    groups = session.scalars(
+        select(SchoolGroupRow).where(SchoolGroupRow.school_id == school_id)
+    ).all()
     subjects = session.scalars(
         select(SchoolSubjectRow).where(SchoolSubjectRow.school_id == school_id)
     ).all()
@@ -322,13 +327,19 @@ def _solver_inputs(
     activity_rows = session.scalars(
         select(SchoolActivityRow).where(
             SchoolActivityRow.school_id == school_id,
-            or_(SchoolActivityRow.weekday.is_(None), SchoolActivityRow.weekday == plan_date.weekday()),
+            or_(
+                SchoolActivityRow.weekday.is_(None),
+                SchoolActivityRow.weekday == plan_date.weekday(),
+            ),
         )
     ).all()
     if not teacher_rows or not activity_rows:
         raise HTTPException(
             status_code=409,
-            detail="School timetable is incomplete for this day; teachers and activities are required",
+            detail=(
+                "School timetable is incomplete for this day; "
+                "teachers and activities are required"
+            ),
         )
 
     recent_counts = _recent_substitution_counts(school_id, plan_date, session)
@@ -383,7 +394,10 @@ def solve_academic_day_plan(
     if request.expected_version is not None and request.expected_version != plan.version:
         raise HTTPException(
             status_code=409,
-            detail=f"Day plan version conflict: expected {request.expected_version}, current {plan.version}",
+            detail=(
+                "Day plan version conflict: "
+                f"expected {request.expected_version}, current {plan.version}"
+            ),
         )
 
     absences = tuple(
