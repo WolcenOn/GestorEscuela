@@ -98,7 +98,7 @@ class SchoolConfigurationPut(BaseModel):
     subjects: list[SubjectConfig] = Field(default_factory=list)
     time_slots: list[TimeSlotConfig] = Field(min_length=1)
     teachers: list[TeacherConfig] = Field(min_length=1)
-    activities: list[ActivityConfig] = Field(min_length=1)
+    activities: list[ActivityConfig] = Field(default_factory=list)
 
 
 class SchoolConfigurationRead(SchoolConfigurationPut):
