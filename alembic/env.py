@@ -6,6 +6,7 @@ from sqlalchemy import engine_from_config, pool
 
 from alembic import context
 from gestor_escuela.persistence import models as _models  # noqa: F401
+from gestor_escuela.persistence import operations_models as _operations_models  # noqa: F401
 from gestor_escuela.persistence.db import Base, database_url
 
 config = context.config
