@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GestorEscuela</title>
+  <style>
+    :root { font-family: Inter, system-ui, sans-serif; color: #172033; background: #f5f7fb; }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    header { padding: 24px; background: #172033; color: white; }
+    header h1 { margin: 0 0 6px; font-size: 24px; }
+    header p { margin: 0; opacity: .8; }
+    main { max-width: 1100px; margin: 0 auto; padding: 24px; display: grid; gap: 18px; }
+    section { background: white; border: 1px solid #dde3ee; border-radius: 14px; padding: 18px; }
+    h2 { margin-top: 0; font-size: 18px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+    label { display: grid; gap: 6px; font-size: 13px; font-weight: 600; }
+    input, textarea, button { font: inherit; }
+    input, textarea { width: 100%; border: 1px solid #cbd5e1; border-radius: 9px; padding: 10px; background: white; }
+    textarea { min-height: 220px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+    button { border: 0; border-radius: 9px; padding: 10px 14px; cursor: pointer; font-weight: 700; }
+    .primary { background: #2563eb; color: white; }
+    .secondary { background: #e9eef8; color: #172033; }
+    .danger { background: #fee2e2; color: #991b1b; }
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+    .status { padding: 10px 12px; border-radius: 9px; background: #eef2ff; margin-top: 12px; white-space: pre-wrap; }
+    .ok { background: #ecfdf5; color: #065f46; }
+    .error { background: #fef2f2; color: #991b1b; }
+    .result-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin: 12px 0; }
+    .metric { padding: 12px; border-radius: 10px; background: #f8fafc; }
+    .metric strong { display: block; font-size: 22px; margin-top: 4px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { text-align: left; padding: 9px; border-bottom: 1px solid #e5e7eb; vertical-align: top; }
+    .muted { color: #64748b; font-size: 13px; }
+    code { background: #f1f5f9; padding: 2px 5px; border-radius: 5px; }
+  </style>
+</head>
+<body>
+<header>
+  <h1>GestorEscuela</h1>
+  <p>Consola operativa del motor de ausencias y sustituciones.</p>
+</header>
+<main>
+  <section>
+    <h2>1. Centro y administrador</h2>
+    <p class="muted">La primera vez crea un usuario administrador y un centro. Los identificadores se guardan solo en este navegador.</p>
+    <div class="grid">
+      <label>Nombre<input id="displayName" value="Administrador" /></label>
+      <label>Email<input id="email" type="email" placeholder="admin@centro.es" /></label>
+      <label>Centro<input id="schoolName" placeholder="CEIP Ejemplo" /></label>
+    </div>
+    <div class="actions">
+      <button class="primary" id="bootstrapBtn">Crear espacio de trabajo</button>
+      <button class="danger" id="resetBtn">Olvidar espacio local</button>
+    </div>
+    <div id="workspaceStatus" class="status">Sin espacio de trabajo guardado.</div>
+  </section>
+
+  <section>
+    <h2>2. Configuración del centro</h2>
+    <p class="muted">Primera versión: editor JSON validado por la API. Después sustituiremos esto por tablas y formularios visuales.</p>
+    <textarea id="config"></textarea>
+    <div class="actions">
+      <button class="secondary" id="sampleBtn">Cargar ejemplo</button>
+      <button class="primary" id="saveConfigBtn">Guardar configuración</button>
+    </div>
+    <div id="configStatus" class="status">Pendiente.</div>
+  </section>
+
+  <section>
+    <h2>3. Resolver ausencias</h2>
+    <div class="grid">
+      <label>Fecha del plan<input id="planDate" type="date" /></label>
+      <label>Ausencias
+        <input id="absences" placeholder="P01:S1,S2; P04:S3" />
+      </label>
+    </div>
+    <p class="muted">Formato: <code>DOCENTE:FRANJA,FRANJA; OTRO:FRANJA</code>.</p>
+    <div class="actions"><button class="primary" id="solveBtn">Calcular sustituciones</button></div>
+    <div id="solveStatus" class="status">Pendiente.</div>
+    <div id="results"></div>
+  </section>
+</main>
+<script>
+const sampleConfig = {
+  groups: [{id: "G1", label: "Grupo 1"}, {id: "G2", label: "Grupo 2"}],
+  time_slots: [{id: "S1", label: "09:00", order: 1}, {id: "S2", label: "10:00", order: 2}],
+  teachers: [
+    {id: "P01", profile: "TUTOR", substitution_count: 0, can_cover_groups: ["G1", "G2"], specialties: [], emergency_only: false},
+    {id: "P02", profile: "SUPPORT", substitution_count: 0, can_cover_groups: ["G1", "G2"], specialties: [], emergency_only: false},
+    {id: "P03", profile: "SPECIALIST", substitution_count: 1, can_cover_groups: ["G1", "G2"], specialties: ["ENGLISH"], emergency_only: false}
+  ],
+  activities: [
+    {id: "A-G1-S1", slot_id: "S1", activity_type: "CLASS", teacher_id: "P01", group_id: "G1", priority: 30, movable: false, cancelable: false},
+    {id: "A-P02-S1", slot_id: "S1", activity_type: "SUPPORT", teacher_id: "P02", group_id: null, priority: 10, movable: true, cancelable: true},
+    {id: "A-P03-S1", slot_id: "S1", activity_type: "COORDINATION", teacher_id: "P03", group_id: null, priority: 10, movable: true, cancelable: true},
+    {id: "A-G2-S2", slot_id: "S2", activity_type: "CLASS", teacher_id: "P01", group_id: "G2", priority: 30, movable: false, cancelable: false}
+  ]
+};
+
+const stateKey = "gestorEscuelaWorkspace";
+const plansKey = "gestorEscuelaPlans";
+const $ = (id) => document.getElementById(id);
+const state = () => JSON.parse(localStorage.getItem(stateKey) || "null");
+const plans = () => JSON.parse(localStorage.getItem(plansKey) || "{}");
+
+function setStatus(id, text, kind="") {
+  const el = $(id); el.textContent = text; el.className = `status ${kind}`.trim();
+}
+function authHeaders(scoped=true) {
+  const s = state();
+  if (!s) return {"Content-Type":"application/json", "X-Actor-Role":"ADMIN"};
+  return scoped
+    ? {"Content-Type":"application/json", "X-Actor-Id":s.actorId}
+    : {"Content-Type":"application/json", "X-Actor-Id":s.actorId, "X-Actor-Role":"ADMIN"};
+}
+async function request(url, options={}) {
+  const response = await fetch(url, options);
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.detail ? JSON.stringify(body.detail) : `${response.status} ${response.statusText}`);
+  return body;
+}
+function renderWorkspace() {
+  const s = state();
+  if (!s) return setStatus("workspaceStatus", "Sin espacio de trabajo guardado.");
+  setStatus("workspaceStatus", `Centro: ${s.schoolName}\nSchool ID: ${s.schoolId}\nActor ID: ${s.actorId}`, "ok");
+}
+function parseAbsences(text) {
+  return text.split(";").map(x => x.trim()).filter(Boolean).map(item => {
+    const [teacher, slots] = item.split(":");
+    if (!teacher || !slots) throw new Error(`Ausencia inválida: ${item}`);
+    return {teacher_id: teacher.trim(), slot_ids: slots.split(",").map(s => s.trim()).filter(Boolean)};
+  });
+}
+
+$("bootstrapBtn").onclick = async () => {
+  try {
+    const email = $("email").value.trim(); const displayName = $("displayName").value.trim(); const schoolName = $("schoolName").value.trim();
+    if (!email || !displayName || !schoolName) throw new Error("Completa nombre, email y centro.");
+    setStatus("workspaceStatus", "Creando usuario...");
+    const user = await request("/users", {method:"POST", headers:{"Content-Type":"application/json","X-Actor-Role":"ADMIN"}, body:JSON.stringify({email, display_name:displayName})});
+    setStatus("workspaceStatus", "Creando centro...");
+    const school = await request("/schools", {method:"POST", headers:{"Content-Type":"application/json","X-Actor-Id":user.id,"X-Actor-Role":"ADMIN"}, body:JSON.stringify({name:schoolName})});
+    setStatus("workspaceStatus", "Asignando administrador...");
+    await request(`/schools/${school.id}/memberships`, {method:"PUT", headers:{"Content-Type":"application/json","X-Actor-Role":"ADMIN"}, body:JSON.stringify({user_id:user.id, role:"ADMIN"})});
+    localStorage.setItem(stateKey, JSON.stringify({actorId:user.id, schoolId:school.id, schoolName:school.name}));
+    renderWorkspace();
+  } catch (e) { setStatus("workspaceStatus", e.message, "error"); }
+};
+$("resetBtn").onclick = () => { localStorage.removeItem(stateKey); localStorage.removeItem(plansKey); renderWorkspace(); };
+$("sampleBtn").onclick = () => { $("config").value = JSON.stringify(sampleConfig, null, 2); };
+$("saveConfigBtn").onclick = async () => {
+  try {
+    const s = state(); if (!s) throw new Error("Primero crea el espacio de trabajo.");
+    const payload = JSON.parse($("config").value);
+    await request(`/schools/${s.schoolId}/configuration`, {method:"PUT", headers:authHeaders(true), body:JSON.stringify(payload)});
+    setStatus("configStatus", "Configuración guardada correctamente.", "ok");
+  } catch (e) { setStatus("configStatus", e.message, "error"); }
+};
+$("solveBtn").onclick = async () => {
+  try {
+    const s = state(); if (!s) throw new Error("Primero crea el espacio de trabajo.");
+    const planDate = $("planDate").value; if (!planDate) throw new Error("Selecciona una fecha.");
+    const absences = parseAbsences($("absences").value); if (!absences.length) throw new Error("Indica al menos una ausencia.");
+    const knownPlans = plans(); let planId = knownPlans[planDate];
+    if (!planId) {
+      setStatus("solveStatus", "Creando plan del día...");
+      const plan = await request(`/schools/${s.schoolId}/day-plans`, {method:"POST", headers:authHeaders(true), body:JSON.stringify({plan_date:planDate, payload:{}})});
+      planId = plan.id; knownPlans[planDate] = planId; localStorage.setItem(plansKey, JSON.stringify(knownPlans));
+    }
+    setStatus("solveStatus", "Ejecutando optimizador...");
+    const solved = await request(`/schools/${s.schoolId}/day-plans/${planId}/solve`, {method:"POST", headers:authHeaders(true), body:JSON.stringify({absences})});
+    setStatus("solveStatus", `Plan resuelto. Versión ${solved.version}.`, "ok");
+    renderResults(solved.payload.solution || {});
+  } catch (e) { setStatus("solveStatus", e.message, "error"); }
+};
+function renderResults(solution) {
+  const substitutions = solution.substitutions || []; const uncovered = solution.uncovered || []; const assessments = solution.candidate_assessments || [];
+  const coverage = Math.round((solution.coverage_ratio || 0) * 100);
+  let html = `<div class="result-grid"><div class="metric">Cobertura<strong>${coverage}%</strong></div><div class="metric">Puntuación<strong>${solution.score ?? "-"}</strong></div><div class="metric">Sustituciones<strong>${substitutions.length}</strong></div><div class="metric">Sin cubrir<strong>${uncovered.length}</strong></div></div>`;
+  html += `<h3>Sustituciones propuestas</h3><table><thead><tr><th>Franja</th><th>Grupo</th><th>Ausente</th><th>Sustituto</th><th>Coste</th></tr></thead><tbody>`;
+  html += substitutions.map(x => `<tr><td>${x.slot_id}</td><td>${x.group_id}</td><td>${x.absent_teacher_id}</td><td><strong>${x.substitute_teacher_id}</strong></td><td>${x.penalty}</td></tr>`).join("") || `<tr><td colspan="5">Sin sustituciones.</td></tr>`;
+  html += `</tbody></table>`;
+  if (uncovered.length) html += `<h3>Sin cobertura</h3><ul>${uncovered.map(x => `<li>${x.group_id} · ${x.slot_id}: ${x.reason}</li>`).join("")}</ul>`;
+  const rejected = assessments.filter(x => x.status === "REJECTED");
+  if (rejected.length) html += `<h3>Por qué se descartaron candidatos</h3><table><thead><tr><th>Actividad</th><th>Docente</th><th>Motivo</th></tr></thead><tbody>${rejected.map(x => `<tr><td>${x.activity_id}</td><td>${x.teacher_id}</td><td>${x.detail || x.rejection_reason || "-"}</td></tr>`).join("")}</tbody></table>`;
+  $("results").innerHTML = html;
+}
+
+$("config").value = JSON.stringify(sampleConfig, null, 2);
+$("planDate").value = new Date().toISOString().slice(0,10);
+renderWorkspace();
+</script>
+</body>
+</html>
