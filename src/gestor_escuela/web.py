@@ -7,15 +7,18 @@ from fastapi.responses import FileResponse, HTMLResponse
 from gestor_escuela.api.academic import router as academic_router
 from gestor_escuela.api.app import app
 from gestor_escuela.api.operations import router as operations_router
+from gestor_escuela.api.plan_insights import router as plan_insights_router
 
 _STATIC_DIR = Path(__file__).with_name("static")
 _UI_FILE = _STATIC_DIR / "index.html"
 _DEMO_FILE = _STATIC_DIR / "demo.js"
 _OPERATIONS_FILE = _STATIC_DIR / "operations.js"
 _PHASE9_FILE = _STATIC_DIR / "phase9.js"
+_PHASE10_FILE = _STATIC_DIR / "phase10.js"
 
 app.include_router(academic_router)
 app.include_router(operations_router)
+app.include_router(plan_insights_router)
 
 
 @app.get("/", include_in_schema=False)
@@ -25,6 +28,7 @@ def operator_ui() -> HTMLResponse:
         '<script src="/demo.js"></script>'
         '<script src="/operations.js"></script>'
         '<script src="/phase9.js"></script>'
+        '<script src="/phase10.js"></script>'
     )
     html = html.replace("</body>", f"{scripts}</body>")
     return HTMLResponse(html)
@@ -43,3 +47,8 @@ def operations_script() -> FileResponse:
 @app.get("/phase9.js", include_in_schema=False)
 def phase9_script() -> FileResponse:
     return FileResponse(_PHASE9_FILE, media_type="application/javascript")
+
+
+@app.get("/phase10.js", include_in_schema=False)
+def phase10_script() -> FileResponse:
+    return FileResponse(_PHASE10_FILE, media_type="application/javascript")
