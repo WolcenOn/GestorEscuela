@@ -58,5 +58,9 @@ def test_complete_demo_can_solve_prepared_absence(page: Page) -> None:
 
     expect(page.locator("#solveStatus")).to_contain_text("Plan resuelto")
     expect(page.locator("#results")).to_contain_text("Cobertura")
-    expect(page.locator("#results")).to_contain_text("Propuesta")
-    expect(page.locator("#results")).to_contain_text("Ranking de candidatos")
+    expect(page.locator("#results")).to_contain_text("Plan por franjas")
+    expect(page.locator("#results .plan-slot").first).to_be_visible()
+    expect(page.locator("#results")).to_contain_text("Histórico")
+    expect(page.locator("#results")).to_contain_text("30 días")
+    expect(page.locator("#results")).to_contain_text("7 días")
+    expect(page.locator("#results")).to_contain_text("Razón / valoración")
