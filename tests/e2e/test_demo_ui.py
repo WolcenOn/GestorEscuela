@@ -34,6 +34,11 @@ def test_complete_demo_can_solve_prepared_absence(page: Page) -> None:
         for cell_index in range(30):
             expect(timetable_cells.nth(cell_index).locator(".lesson").first).to_be_visible()
 
+    page.locator("#scheduleMode").select_option("teacher")
+    page.locator("#scheduleTeacher").select_option("P01")
+    expect(page.locator("#scheduleBody .lesson")).to_have_count(30)
+    expect(page.locator("#scheduleBody")).to_contain_text("LIBRE")
+
     expect(page.get_by_role("button", name="Cargar demo completo")).to_be_visible()
 
     page.get_by_role("button", name="Recreos").click()
@@ -54,3 +59,4 @@ def test_complete_demo_can_solve_prepared_absence(page: Page) -> None:
     expect(page.locator("#solveStatus")).to_contain_text("Plan resuelto")
     expect(page.locator("#results")).to_contain_text("Cobertura")
     expect(page.locator("#results")).to_contain_text("Propuesta")
+    expect(page.locator("#results")).to_contain_text("Ranking de candidatos")

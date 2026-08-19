@@ -12,6 +12,7 @@ _STATIC_DIR = Path(__file__).with_name("static")
 _UI_FILE = _STATIC_DIR / "index.html"
 _DEMO_FILE = _STATIC_DIR / "demo.js"
 _OPERATIONS_FILE = _STATIC_DIR / "operations.js"
+_PHASE9_FILE = _STATIC_DIR / "phase9.js"
 
 app.include_router(academic_router)
 app.include_router(operations_router)
@@ -20,7 +21,11 @@ app.include_router(operations_router)
 @app.get("/", include_in_schema=False)
 def operator_ui() -> HTMLResponse:
     html = _UI_FILE.read_text(encoding="utf-8")
-    scripts = '<script src="/demo.js"></script><script src="/operations.js"></script>'
+    scripts = (
+        '<script src="/demo.js"></script>'
+        '<script src="/operations.js"></script>'
+        '<script src="/phase9.js"></script>'
+    )
     html = html.replace("</body>", f"{scripts}</body>")
     return HTMLResponse(html)
 
@@ -33,3 +38,8 @@ def demo_script() -> FileResponse:
 @app.get("/operations.js", include_in_schema=False)
 def operations_script() -> FileResponse:
     return FileResponse(_OPERATIONS_FILE, media_type="application/javascript")
+
+
+@app.get("/phase9.js", include_in_schema=False)
+def phase9_script() -> FileResponse:
+    return FileResponse(_PHASE9_FILE, media_type="application/javascript")
