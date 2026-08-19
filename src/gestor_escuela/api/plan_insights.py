@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import date, timedelta
+from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Query
@@ -18,7 +19,7 @@ def substitution_statistics(
     school_id: UUID,
     session: SessionDep,
     _actor: ViewerDep,
-    plan_date: date = Query(...),
+    plan_date: Annotated[date, Query()],
 ) -> dict[str, object]:
     """Return substitution load by teacher before the requested plan date.
 
