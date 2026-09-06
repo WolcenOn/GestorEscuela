@@ -1,8 +1,8 @@
-name: Backend CI
+name: Backend integration CI
 
 on:
   push:
-    branches: [main]
+    branches: [integracion-horario-pt-al]
   pull_request:
   workflow_dispatch:
 
@@ -86,6 +86,6 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-traces
+          name: playwright-traces-integration
           path: test-results/
           if-no-files-found: ignore
