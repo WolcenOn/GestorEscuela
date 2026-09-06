@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 
 from gestor_escuela.api.academic import router as academic_router
@@ -15,6 +17,29 @@ _DEMO_FILE = _STATIC_DIR / "demo.js"
 _OPERATIONS_FILE = _STATIC_DIR / "operations.js"
 _PHASE9_FILE = _STATIC_DIR / "phase9.js"
 _PHASE10_FILE = _STATIC_DIR / "phase10.js"
+
+
+def _cors_origins() -> list[str]:
+    """Origins allowed to call the deployed API from a separate browser frontend.
+
+    The production default only enables the GitHub Pages origin used by Horario PT / AL.
+    Additional local or preview origins can be supplied as a comma-separated CORS_ORIGINS
+    environment variable without changing application code.
+    """
+
+    configured = os.getenv("CORS_ORIGINS", "https://wolcenon.github.io")
+    return [origin.strip().rstrip("/") for origin in configured.split(",") if origin.strip()]
+
+
+origins = _cors_origins()
+if origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Content-Type", "X-Actor-Id", "X-Actor-Role", "Authorization"],
+    )
 
 app.include_router(academic_router)
 app.include_router(operations_router)
