@@ -12,6 +12,7 @@ class StaffingTeacher:
     role: str
     available_minutes: int
     allowed_subjects: frozenset[str]
+    specialty_subjects: frozenset[str] = frozenset()
     tutor_preference: str = "disponible"
     fixed_tutor_group: str | None = None
     minimum_tutor_minutes: int = 0
@@ -69,9 +70,10 @@ class StaffingSolution:
 class StaffingOptimizer:
     """Assign weekly teaching needs and tutor groups before timetable placement.
 
-    This solver intentionally does not decide days or clock times. It answers the earlier
-    planning question: who should cover each group/subject, while minimizing fragmentation
-    and unnecessary cross-group movement and respecting teacher capacity.
+    The solver first protects coverage and hard capacity. Among complete solutions it favors
+    specialist teachers for their specialist subjects, tutors teaching their own group and
+    compact allocations with fewer teacher/group relationships. This keeps the future
+    timetable stable and avoids unnecessary movement between classes.
     """
 
     def __init__(self, max_time_seconds: float = 8.0):
@@ -87,6 +89,14 @@ class StaffingOptimizer:
         self._validate(teachers, requirements, group_ids)
         model = cp_model.CpModel()
         teacher_by_id = {teacher.id: teacher for teacher in teachers}
+        specialist_ids_by_subject = {
+            requirement.subject: frozenset(
+                teacher.id
+                for teacher in teachers
+                if requirement.subject in teacher.specialty_subjects
+            )
+            for requirement in requirements
+        }
 
         assignment_vars: dict[tuple[str, str], cp_model.IntVar] = {}
         uncovered_vars: dict[str, cp_model.IntVar] = {}
@@ -221,8 +231,21 @@ class StaffingOptimizer:
             objective_terms.append(
                 requirement.minutes * 10_000 * uncovered_vars[requirement.id]
             )
+            specialist_ids = specialist_ids_by_subject.get(requirement.subject, frozenset())
+            if specialist_ids:
+                for teacher in eligible_by_requirement[requirement.id]:
+                    assignment_var = assignment_vars[(requirement.id, teacher.id)]
+                    if teacher.id in specialist_ids:
+                        # Small reward for keeping specialist hours with the specialist.
+                        objective_terms.append(-8 * requirement.minutes * assignment_var)
+                    else:
+                        # A non-specialist may still cover the subject when necessary, but
+                        # doing so should be noticeably more expensive than ordinary movement.
+                        objective_terms.append(35 * requirement.minutes * assignment_var)
+
         for uncovered_tutor_var in uncovered_tutor_vars.values():
             objective_terms.append(500_000 * uncovered_tutor_var)
+
         for (_group_id, teacher_id), tutor_var in tutor_vars.items():
             teacher = teacher_by_id[teacher_id]
             if teacher.role == "especialista":
@@ -236,12 +259,16 @@ class StaffingOptimizer:
                 "no": 100_000,
             }.get(teacher.tutor_preference, 1_000)
             objective_terms.append(preference_penalty * tutor_var)
+
+        # Every teacher/group relationship is a potential movement. A stronger weight here
+        # favors compact allocations while still allowing cross-group swaps when capacity or
+        # tutor continuity requires them.
         for group_used_var in group_use_vars.values():
-            objective_terms.append(250 * group_used_var)
+            objective_terms.append(450 * group_used_var)
         for shortfall in tutor_presence_shortfalls:
             objective_terms.append(40 * shortfall)
         for tutor_teaches_var in tutor_teaches_vars:
-            objective_terms.append(-2_000 * tutor_teaches_var)
+            objective_terms.append(-2_500 * tutor_teaches_var)
 
         model.minimize(sum(objective_terms))
         solver = cp_model.CpSolver()
@@ -340,6 +367,10 @@ class StaffingOptimizer:
         for teacher in teachers:
             if teacher.available_minutes < 0:
                 raise ValueError("Teacher available minutes cannot be negative")
+            if not teacher.specialty_subjects.issubset(teacher.allowed_subjects):
+                raise ValueError(
+                    f"Specialty subjects must also be allowed subjects for teacher {teacher.id}"
+                )
             if teacher.fixed_tutor_group and teacher.fixed_tutor_group not in known_groups:
                 raise ValueError(f"Unknown fixed tutor group: {teacher.fixed_tutor_group}")
         for requirement in requirements:
