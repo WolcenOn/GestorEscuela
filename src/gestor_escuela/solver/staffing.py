@@ -158,13 +158,11 @@ class StaffingOptimizer:
         activity_vars: dict[tuple[str, str], cp_model.IntVar] = {}
         activity_uncovered_vars: dict[str, cp_model.IntVar] = {}
         candidates_by_activity: dict[str, tuple[StaffingTeacher, ...]] = {}
-        required_slots_by_activity: dict[str, int] = {}
         for activity in activities:
             candidate_ids = activity.fixed_teacher_ids | activity.eligible_teacher_ids
             candidates = tuple(teacher for teacher in teachers if teacher.id in candidate_ids)
             candidates_by_activity[activity.id] = candidates
             required_slots = max(activity.required_staff, len(activity.fixed_teacher_ids))
-            required_slots_by_activity[activity.id] = required_slots
             for teacher in candidates:
                 activity_vars[(activity.id, teacher.id)] = model.new_bool_var(
                     f"activity_{self._safe(activity.id)}_{self._safe(teacher.id)}"
@@ -257,7 +255,7 @@ class StaffingOptimizer:
 
         tutor_presence_shortfalls: list[cp_model.IntVar] = []
         tutor_teaches_vars: list[cp_model.IntVar] = []
-        for (group_id, teacher_id), tutor_var in tutor_vars.items():
+        for (group_id, teacher_id), tutor_choice_var in tutor_vars.items():
             teacher = teacher_by_id[teacher_id]
             group_requirements = [
                 requirement
@@ -277,9 +275,11 @@ class StaffingOptimizer:
                 )
                 model.add(
                     taught_minutes + shortfall
-                    >= teacher.minimum_tutor_minutes * tutor_var
+                    >= teacher.minimum_tutor_minutes * tutor_choice_var
                 )
-                model.add(shortfall <= teacher.minimum_tutor_minutes * tutor_var)
+                model.add(
+                    shortfall <= teacher.minimum_tutor_minutes * tutor_choice_var
+                )
                 tutor_presence_shortfalls.append(shortfall)
 
             group_used = group_use_vars.get((teacher_id, group_id))
@@ -287,9 +287,9 @@ class StaffingOptimizer:
                 tutor_teaches_var = model.new_bool_var(
                     f"tutor_teaches_{self._safe(group_id)}_{self._safe(teacher_id)}"
                 )
-                model.add(tutor_teaches_var <= tutor_var)
+                model.add(tutor_teaches_var <= tutor_choice_var)
                 model.add(tutor_teaches_var <= group_used)
-                model.add(tutor_teaches_var >= tutor_var + group_used - 1)
+                model.add(tutor_teaches_var >= tutor_choice_var + group_used - 1)
                 tutor_teaches_vars.append(tutor_teaches_var)
 
         objective_terms: list[cp_model.LinearExpr] = []
@@ -317,12 +317,12 @@ class StaffingOptimizer:
                     objective_terms.append(80 * activity_var)
 
                 for group_id in activity.group_ids:
-                    tutor_var = tutor_vars.get((group_id, teacher.id))
-                    if tutor_var is not None:
+                    matching_tutor_var = tutor_vars.get((group_id, teacher.id))
+                    if matching_tutor_var is not None:
                         tutor_match = self._and_var(
                             model,
                             activity_var,
-                            tutor_var,
+                            matching_tutor_var,
                             f"activity_tutor_{activity.id}_{teacher.id}_{group_id}",
                         )
                         objective_terms.append(-1_500 * tutor_match)
@@ -339,19 +339,19 @@ class StaffingOptimizer:
         for uncovered_tutor_var in uncovered_tutor_vars.values():
             objective_terms.append(500_000 * uncovered_tutor_var)
 
-        for (_group_id, teacher_id), tutor_var in tutor_vars.items():
+        for (_group_id, teacher_id), tutor_choice_var in tutor_vars.items():
             teacher = teacher_by_id[teacher_id]
             if teacher.role == "especialista":
-                objective_terms.append(18_000 * tutor_var)
+                objective_terms.append(18_000 * tutor_choice_var)
             elif teacher.role == "mixto":
-                objective_terms.append(3_000 * tutor_var)
+                objective_terms.append(3_000 * tutor_choice_var)
             preference_penalty = {
                 "preferente": 0,
                 "disponible": 600,
                 "evitar": 12_000,
                 "no": 100_000,
             }.get(teacher.tutor_preference, 1_000)
-            objective_terms.append(preference_penalty * tutor_var)
+            objective_terms.append(preference_penalty * tutor_choice_var)
 
         for group_used_var in group_use_vars.values():
             objective_terms.append(450 * group_used_var)
@@ -421,11 +421,13 @@ class StaffingOptimizer:
         activity_by_teacher = {teacher.id: 0 for teacher in teachers}
         groups_by_teacher = {teacher.id: set[str]() for teacher in teachers}
         tutor_by_teacher: dict[str, str] = {}
-        for assignment in assignments:
-            teaching_by_teacher[assignment.teacher_id] += assignment.minutes
-            groups_by_teacher[assignment.teacher_id].add(assignment.group_id)
-        for assignment in activity_assignments:
-            activity_by_teacher[assignment.teacher_id] += assignment.minutes
+        for teaching_assignment in assignments:
+            teaching_by_teacher[teaching_assignment.teacher_id] += teaching_assignment.minutes
+            groups_by_teacher[teaching_assignment.teacher_id].add(
+                teaching_assignment.group_id
+            )
+        for activity_assignment in activity_assignments:
+            activity_by_teacher[activity_assignment.teacher_id] += activity_assignment.minutes
         for tutor in tutors:
             tutor_by_teacher[tutor.teacher_id] = tutor.group_id
 
