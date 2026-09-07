@@ -130,7 +130,11 @@ def get_roster(
     students = session.scalars(
         select(SchoolStudentRow)
         .where(SchoolStudentRow.school_id == school_id)
-        .order_by(SchoolStudentRow.group_external_id, SchoolStudentRow.last_name, SchoolStudentRow.first_name)
+        .order_by(
+            SchoolStudentRow.group_external_id,
+            SchoolStudentRow.last_name,
+            SchoolStudentRow.first_name,
+        )
     ).all()
     supports = session.scalars(
         select(SchoolStudentSupportRow)
