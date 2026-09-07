@@ -23,6 +23,7 @@ class StaffingTeacherInput(BaseModel):
     role: Literal["generalista", "especialista", "mixto"] = "generalista"
     available_minutes: int = Field(ge=0, le=10_000)
     allowed_subjects: set[str] = Field(default_factory=set)
+    specialty_subjects: set[str] = Field(default_factory=set)
     tutor_preference: Literal["preferente", "disponible", "evitar", "no"] = "disponible"
     fixed_tutor_group: str | None = Field(default=None, max_length=120)
     minimum_tutor_minutes: int = Field(default=0, ge=0, le=3_000)
@@ -95,6 +96,7 @@ def solve_staffing(
             role=item.role,
             available_minutes=item.available_minutes,
             allowed_subjects=frozenset(item.allowed_subjects),
+            specialty_subjects=frozenset(item.specialty_subjects),
             tutor_preference=item.tutor_preference,
             fixed_tutor_group=item.fixed_tutor_group,
             minimum_tutor_minutes=item.minimum_tutor_minutes,
