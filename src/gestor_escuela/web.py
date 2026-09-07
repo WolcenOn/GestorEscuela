@@ -10,6 +10,7 @@ from gestor_escuela.api.academic import router as academic_router
 from gestor_escuela.api.app import app
 from gestor_escuela.api.operations import router as operations_router
 from gestor_escuela.api.plan_insights import router as plan_insights_router
+from gestor_escuela.api.staffing import router as staffing_router
 
 _STATIC_DIR = Path(__file__).with_name("static")
 _UI_FILE = _STATIC_DIR / "index.html"
@@ -44,6 +45,7 @@ if origins:
 app.include_router(academic_router)
 app.include_router(operations_router)
 app.include_router(plan_insights_router)
+app.include_router(staffing_router)
 
 
 @app.get("/", include_in_schema=False)
