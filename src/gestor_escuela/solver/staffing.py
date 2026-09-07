@@ -103,17 +103,17 @@ class StaffingOptimizer:
                 assignment_vars[(requirement.id, teacher.id)] = model.new_bool_var(
                     f"assign_{self._safe(requirement.id)}_{self._safe(teacher.id)}"
                 )
-            uncovered = model.new_bool_var(f"uncovered_{self._safe(requirement.id)}")
-            uncovered_vars[requirement.id] = uncovered
+            uncovered_var = model.new_bool_var(f"uncovered_{self._safe(requirement.id)}")
+            uncovered_vars[requirement.id] = uncovered_var
             model.add(
                 sum(assignment_vars[(requirement.id, teacher.id)] for teacher in eligible)
-                + uncovered
+                + uncovered_var
                 == 1
             )
             if requirement.fixed_teacher_id is not None:
                 fixed_var = assignment_vars.get((requirement.id, requirement.fixed_teacher_id))
                 if fixed_var is None:
-                    model.add(uncovered == 1)
+                    model.add(uncovered_var == 1)
                 else:
                     model.add(fixed_var == 1)
 
@@ -136,31 +136,33 @@ class StaffingOptimizer:
                 ]
                 if not relevant:
                     continue
-                used = model.new_bool_var(
+                group_used_var = model.new_bool_var(
                     f"uses_{self._safe(teacher.id)}_{self._safe(group_id)}"
                 )
-                group_use_vars[(teacher.id, group_id)] = used
-                for variable in relevant:
-                    model.add(variable <= used)
-                model.add(used <= sum(relevant))
+                group_use_vars[(teacher.id, group_id)] = group_used_var
+                for assignment_var in relevant:
+                    model.add(assignment_var <= group_used_var)
+                model.add(group_used_var <= sum(relevant))
 
         tutor_vars: dict[tuple[str, str], cp_model.IntVar] = {}
         uncovered_tutor_vars: dict[str, cp_model.IntVar] = {}
         for group_id in group_ids:
             candidates = tuple(
-                teacher for teacher in teachers if teacher.tutor_preference != "no"
+                teacher
+                for teacher in teachers
+                if teacher.tutor_preference != "no" or teacher.fixed_tutor_group == group_id
             )
             for teacher in candidates:
                 tutor_vars[(group_id, teacher.id)] = model.new_bool_var(
                     f"tutor_{self._safe(group_id)}_{self._safe(teacher.id)}"
                 )
-            uncovered_tutor = model.new_bool_var(
+            uncovered_tutor_var = model.new_bool_var(
                 f"uncovered_tutor_{self._safe(group_id)}"
             )
-            uncovered_tutor_vars[group_id] = uncovered_tutor
+            uncovered_tutor_vars[group_id] = uncovered_tutor_var
             model.add(
                 sum(tutor_vars[(group_id, teacher.id)] for teacher in candidates)
-                + uncovered_tutor
+                + uncovered_tutor_var
                 == 1
             )
 
@@ -173,9 +175,9 @@ class StaffingOptimizer:
             if tutor_terms:
                 model.add(sum(tutor_terms) <= 1)
             if teacher.fixed_tutor_group:
-                fixed = tutor_vars.get((teacher.fixed_tutor_group, teacher.id))
-                if fixed is not None:
-                    model.add(fixed == 1)
+                fixed_tutor_var = tutor_vars.get((teacher.fixed_tutor_group, teacher.id))
+                if fixed_tutor_var is not None:
+                    model.add(fixed_tutor_var == 1)
 
         tutor_presence_shortfalls: list[cp_model.IntVar] = []
         tutor_teaches_vars: list[cp_model.IntVar] = []
@@ -204,42 +206,42 @@ class StaffingOptimizer:
                 model.add(shortfall <= teacher.minimum_tutor_minutes * tutor_var)
                 tutor_presence_shortfalls.append(shortfall)
 
-            used = group_use_vars.get((teacher_id, group_id))
-            if used is not None:
-                teaches = model.new_bool_var(
+            group_used = group_use_vars.get((teacher_id, group_id))
+            if group_used is not None:
+                tutor_teaches_var = model.new_bool_var(
                     f"tutor_teaches_{self._safe(group_id)}_{self._safe(teacher_id)}"
                 )
-                model.add(teaches <= tutor_var)
-                model.add(teaches <= used)
-                model.add(teaches >= tutor_var + used - 1)
-                tutor_teaches_vars.append(teaches)
+                model.add(tutor_teaches_var <= tutor_var)
+                model.add(tutor_teaches_var <= group_used)
+                model.add(tutor_teaches_var >= tutor_var + group_used - 1)
+                tutor_teaches_vars.append(tutor_teaches_var)
 
         objective_terms: list[cp_model.LinearExpr] = []
         for requirement in requirements:
             objective_terms.append(
                 requirement.minutes * 10_000 * uncovered_vars[requirement.id]
             )
-        for variable in uncovered_tutor_vars.values():
-            objective_terms.append(500_000 * variable)
-        for (_group_id, teacher_id), variable in tutor_vars.items():
+        for uncovered_tutor_var in uncovered_tutor_vars.values():
+            objective_terms.append(500_000 * uncovered_tutor_var)
+        for (_group_id, teacher_id), tutor_var in tutor_vars.items():
             teacher = teacher_by_id[teacher_id]
             if teacher.role == "especialista":
-                objective_terms.append(18_000 * variable)
+                objective_terms.append(18_000 * tutor_var)
             elif teacher.role == "mixto":
-                objective_terms.append(3_000 * variable)
+                objective_terms.append(3_000 * tutor_var)
             preference_penalty = {
                 "preferente": 0,
                 "disponible": 600,
                 "evitar": 12_000,
                 "no": 100_000,
             }.get(teacher.tutor_preference, 1_000)
-            objective_terms.append(preference_penalty * variable)
-        for variable in group_use_vars.values():
-            objective_terms.append(250 * variable)
+            objective_terms.append(preference_penalty * tutor_var)
+        for group_used_var in group_use_vars.values():
+            objective_terms.append(250 * group_used_var)
         for shortfall in tutor_presence_shortfalls:
             objective_terms.append(40 * shortfall)
-        for variable in tutor_teaches_vars:
-            objective_terms.append(-2_000 * variable)
+        for tutor_teaches_var in tutor_teaches_vars:
+            objective_terms.append(-2_000 * tutor_teaches_var)
 
         model.minimize(sum(objective_terms))
         solver = cp_model.CpSolver()
@@ -250,14 +252,14 @@ class StaffingOptimizer:
             raise ValueError("No staffing solution could be produced")
 
         assignments: list[StaffingAssignment] = []
-        uncovered: list[str] = []
+        uncovered_requirement_ids: list[str] = []
         for requirement in requirements:
             if solver.value(uncovered_vars[requirement.id]):
-                uncovered.append(requirement.id)
+                uncovered_requirement_ids.append(requirement.id)
                 continue
             for teacher in eligible_by_requirement[requirement.id]:
-                variable = assignment_vars[(requirement.id, teacher.id)]
-                if solver.value(variable):
+                assignment_var = assignment_vars[(requirement.id, teacher.id)]
+                if solver.value(assignment_var):
                     assignments.append(
                         StaffingAssignment(
                             requirement_id=requirement.id,
@@ -276,8 +278,8 @@ class StaffingOptimizer:
                 uncovered_tutors.append(group_id)
                 continue
             for teacher in teachers:
-                variable = tutor_vars.get((group_id, teacher.id))
-                if variable is not None and solver.value(variable):
+                tutor_choice = tutor_vars.get((group_id, teacher.id))
+                if tutor_choice is not None and solver.value(tutor_choice):
                     tutors.append(TutorAssignment(group_id=group_id, teacher_id=teacher.id))
                     break
 
@@ -306,7 +308,7 @@ class StaffingOptimizer:
         return StaffingSolution(
             assignments=tuple(assignments),
             tutors=tuple(tutors),
-            uncovered_requirement_ids=tuple(uncovered),
+            uncovered_requirement_ids=tuple(uncovered_requirement_ids),
             uncovered_tutor_groups=tuple(uncovered_tutors),
             teacher_loads=loads,
             objective_value=solver.objective_value,
