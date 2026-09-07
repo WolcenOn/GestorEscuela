@@ -95,8 +95,6 @@ def put_roster(
         session.add(student)
         session.flush()
         for support in item.supports:
-            if support.target_minutes <= 0 and not support.notes:
-                continue
             session.add(
                 SchoolStudentSupportRow(
                     school_id=school_id,
