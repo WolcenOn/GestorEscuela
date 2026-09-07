@@ -221,7 +221,7 @@ class StaffingOptimizer:
             )
         for variable in uncovered_tutor_vars.values():
             objective_terms.append(500_000 * variable)
-        for (group_id, teacher_id), variable in tutor_vars.items():
+        for (_group_id, teacher_id), variable in tutor_vars.items():
             teacher = teacher_by_id[teacher_id]
             if teacher.role == "especialista":
                 objective_terms.append(18_000 * variable)
