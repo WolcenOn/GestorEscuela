@@ -28,10 +28,29 @@ class StaffingRequirement:
 
 
 @dataclass(frozen=True, slots=True)
+class StaffingActivity:
+    id: str
+    name: str
+    minutes: int
+    required_staff: int = 1
+    fixed_teacher_ids: frozenset[str] = frozenset()
+    eligible_teacher_ids: frozenset[str] = frozenset()
+    group_ids: frozenset[str] = frozenset()
+
+
+@dataclass(frozen=True, slots=True)
 class StaffingAssignment:
     requirement_id: str
     group_id: str
     subject: str
+    minutes: int
+    teacher_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class StaffingActivityAssignment:
+    activity_id: str
+    activity_name: str
     minutes: int
     teacher_id: str
 
@@ -46,6 +65,8 @@ class TutorAssignment:
 class StaffingTeacherLoad:
     teacher_id: str
     assigned_minutes: int
+    teaching_minutes: int
+    activity_minutes: int
     available_minutes: int
     remaining_minutes: int
     groups_taught: int
@@ -55,8 +76,10 @@ class StaffingTeacherLoad:
 @dataclass(frozen=True, slots=True)
 class StaffingSolution:
     assignments: tuple[StaffingAssignment, ...]
+    activity_assignments: tuple[StaffingActivityAssignment, ...]
     tutors: tuple[TutorAssignment, ...]
     uncovered_requirement_ids: tuple[str, ...]
+    uncovered_activity_ids: tuple[str, ...]
     uncovered_tutor_groups: tuple[str, ...]
     teacher_loads: tuple[StaffingTeacherLoad, ...]
     objective_value: float
@@ -64,16 +87,20 @@ class StaffingSolution:
 
     @property
     def complete(self) -> bool:
-        return not self.uncovered_requirement_ids and not self.uncovered_tutor_groups
+        return (
+            not self.uncovered_requirement_ids
+            and not self.uncovered_activity_ids
+            and not self.uncovered_tutor_groups
+        )
 
 
 class StaffingOptimizer:
-    """Assign weekly teaching needs and tutor groups before timetable placement.
+    """Assign teaching, center activities and tutor groups before timetable placement.
 
-    The solver first protects coverage and hard capacity. Among complete solutions it favors
-    specialist teachers for their specialist subjects, tutors teaching their own group and
-    compact allocations with fewer teacher/group relationships. This keeps the future
-    timetable stable and avoids unnecessary movement between classes.
+    The solver protects curricular coverage and teacher capacity first. Among complete
+    solutions it favors specialist teachers for specialist subjects, tutors teaching their
+    own group, center activities staying with teachers already linked to their target groups,
+    and compact allocations with fewer teacher/group relationships.
     """
 
     def __init__(self, max_time_seconds: float = 8.0):
@@ -85,8 +112,9 @@ class StaffingOptimizer:
         teachers: tuple[StaffingTeacher, ...],
         requirements: tuple[StaffingRequirement, ...],
         group_ids: tuple[str, ...],
+        activities: tuple[StaffingActivity, ...] = (),
     ) -> StaffingSolution:
-        self._validate(teachers, requirements, group_ids)
+        self._validate(teachers, requirements, group_ids, activities)
         model = cp_model.CpModel()
         teacher_by_id = {teacher.id: teacher for teacher in teachers}
         specialist_ids_by_subject = {
@@ -127,13 +155,51 @@ class StaffingOptimizer:
                 else:
                     model.add(fixed_var == 1)
 
+        activity_vars: dict[tuple[str, str], cp_model.IntVar] = {}
+        activity_uncovered_vars: dict[str, cp_model.IntVar] = {}
+        candidates_by_activity: dict[str, tuple[StaffingTeacher, ...]] = {}
+        required_slots_by_activity: dict[str, int] = {}
+        for activity in activities:
+            candidate_ids = activity.fixed_teacher_ids | activity.eligible_teacher_ids
+            candidates = tuple(teacher for teacher in teachers if teacher.id in candidate_ids)
+            candidates_by_activity[activity.id] = candidates
+            required_slots = max(activity.required_staff, len(activity.fixed_teacher_ids))
+            required_slots_by_activity[activity.id] = required_slots
+            for teacher in candidates:
+                activity_vars[(activity.id, teacher.id)] = model.new_bool_var(
+                    f"activity_{self._safe(activity.id)}_{self._safe(teacher.id)}"
+                )
+            uncovered_count = model.new_int_var(
+                0,
+                required_slots,
+                f"activity_uncovered_{self._safe(activity.id)}",
+            )
+            activity_uncovered_vars[activity.id] = uncovered_count
+            model.add(
+                sum(activity_vars[(activity.id, teacher.id)] for teacher in candidates)
+                + uncovered_count
+                == required_slots
+            )
+            for teacher_id in activity.fixed_teacher_ids:
+                fixed_var = activity_vars.get((activity.id, teacher_id))
+                if fixed_var is not None:
+                    model.add(fixed_var == 1)
+
         for teacher in teachers:
-            load_terms = [
+            teaching_load_terms = [
                 requirement.minutes * assignment_vars[(requirement.id, teacher.id)]
                 for requirement in requirements
                 if (requirement.id, teacher.id) in assignment_vars
             ]
-            model.add(sum(load_terms) <= teacher.available_minutes)
+            activity_load_terms = [
+                activity.minutes * activity_vars[(activity.id, teacher.id)]
+                for activity in activities
+                if (activity.id, teacher.id) in activity_vars
+            ]
+            model.add(
+                sum(teaching_load_terms) + sum(activity_load_terms)
+                <= teacher.available_minutes
+            )
 
         group_use_vars: dict[tuple[str, str], cp_model.IntVar] = {}
         for teacher in teachers:
@@ -236,12 +302,39 @@ class StaffingOptimizer:
                 for teacher in eligible_by_requirement[requirement.id]:
                     assignment_var = assignment_vars[(requirement.id, teacher.id)]
                     if teacher.id in specialist_ids:
-                        # Small reward for keeping specialist hours with the specialist.
                         objective_terms.append(-8 * requirement.minutes * assignment_var)
                     else:
-                        # A non-specialist may still cover the subject when necessary, but
-                        # doing so should be noticeably more expensive than ordinary movement.
                         objective_terms.append(35 * requirement.minutes * assignment_var)
+
+        for activity in activities:
+            uncovered_count = activity_uncovered_vars[activity.id]
+            objective_terms.append(activity.minutes * 3_000 * uncovered_count)
+            for teacher in candidates_by_activity[activity.id]:
+                activity_var = activity_vars[(activity.id, teacher.id)]
+                if teacher.role == "especialista" and teacher.id not in activity.fixed_teacher_ids:
+                    objective_terms.append(350 * activity_var)
+                elif teacher.role == "mixto" and teacher.id not in activity.fixed_teacher_ids:
+                    objective_terms.append(80 * activity_var)
+
+                for group_id in activity.group_ids:
+                    tutor_var = tutor_vars.get((group_id, teacher.id))
+                    if tutor_var is not None:
+                        tutor_match = self._and_var(
+                            model,
+                            activity_var,
+                            tutor_var,
+                            f"activity_tutor_{activity.id}_{teacher.id}_{group_id}",
+                        )
+                        objective_terms.append(-1_500 * tutor_match)
+                    group_used = group_use_vars.get((teacher.id, group_id))
+                    if group_used is not None:
+                        group_match = self._and_var(
+                            model,
+                            activity_var,
+                            group_used,
+                            f"activity_group_{activity.id}_{teacher.id}_{group_id}",
+                        )
+                        objective_terms.append(-500 * group_match)
 
         for uncovered_tutor_var in uncovered_tutor_vars.values():
             objective_terms.append(500_000 * uncovered_tutor_var)
@@ -260,9 +353,6 @@ class StaffingOptimizer:
             }.get(teacher.tutor_preference, 1_000)
             objective_terms.append(preference_penalty * tutor_var)
 
-        # Every teacher/group relationship is a potential movement. A stronger weight here
-        # favors compact allocations while still allowing cross-group swaps when capacity or
-        # tutor continuity requires them.
         for group_used_var in group_use_vars.values():
             objective_terms.append(450 * group_used_var)
         for shortfall in tutor_presence_shortfalls:
@@ -298,6 +388,23 @@ class StaffingOptimizer:
                     )
                     break
 
+        activity_assignments: list[StaffingActivityAssignment] = []
+        uncovered_activity_ids: list[str] = []
+        for activity in activities:
+            if solver.value(activity_uncovered_vars[activity.id]) > 0:
+                uncovered_activity_ids.append(activity.id)
+            for teacher in candidates_by_activity[activity.id]:
+                activity_var = activity_vars[(activity.id, teacher.id)]
+                if solver.value(activity_var):
+                    activity_assignments.append(
+                        StaffingActivityAssignment(
+                            activity_id=activity.id,
+                            activity_name=activity.name,
+                            minutes=activity.minutes,
+                            teacher_id=teacher.id,
+                        )
+                    )
+
         tutors: list[TutorAssignment] = []
         uncovered_tutors: list[str] = []
         for group_id in group_ids:
@@ -310,22 +417,32 @@ class StaffingOptimizer:
                     tutors.append(TutorAssignment(group_id=group_id, teacher_id=teacher.id))
                     break
 
-        assigned_by_teacher = {teacher.id: 0 for teacher in teachers}
+        teaching_by_teacher = {teacher.id: 0 for teacher in teachers}
+        activity_by_teacher = {teacher.id: 0 for teacher in teachers}
         groups_by_teacher = {teacher.id: set[str]() for teacher in teachers}
         tutor_by_teacher: dict[str, str] = {}
         for assignment in assignments:
-            assigned_by_teacher[assignment.teacher_id] += assignment.minutes
+            teaching_by_teacher[assignment.teacher_id] += assignment.minutes
             groups_by_teacher[assignment.teacher_id].add(assignment.group_id)
+        for assignment in activity_assignments:
+            activity_by_teacher[assignment.teacher_id] += assignment.minutes
         for tutor in tutors:
             tutor_by_teacher[tutor.teacher_id] = tutor.group_id
 
         loads = tuple(
             StaffingTeacherLoad(
                 teacher_id=teacher.id,
-                assigned_minutes=assigned_by_teacher[teacher.id],
+                assigned_minutes=(
+                    teaching_by_teacher[teacher.id] + activity_by_teacher[teacher.id]
+                ),
+                teaching_minutes=teaching_by_teacher[teacher.id],
+                activity_minutes=activity_by_teacher[teacher.id],
                 available_minutes=teacher.available_minutes,
                 remaining_minutes=max(
-                    0, teacher.available_minutes - assigned_by_teacher[teacher.id]
+                    0,
+                    teacher.available_minutes
+                    - teaching_by_teacher[teacher.id]
+                    - activity_by_teacher[teacher.id],
                 ),
                 groups_taught=len(groups_by_teacher[teacher.id]),
                 tutor_group=tutor_by_teacher.get(teacher.id),
@@ -334,8 +451,10 @@ class StaffingOptimizer:
         )
         return StaffingSolution(
             assignments=tuple(assignments),
+            activity_assignments=tuple(activity_assignments),
             tutors=tuple(tutors),
             uncovered_requirement_ids=tuple(uncovered_requirement_ids),
+            uncovered_activity_ids=tuple(uncovered_activity_ids),
             uncovered_tutor_groups=tuple(uncovered_tutors),
             teacher_loads=loads,
             objective_value=solver.objective_value,
@@ -351,15 +470,31 @@ class StaffingOptimizer:
         return requirement.subject in teacher.allowed_subjects
 
     @staticmethod
+    def _and_var(
+        model: cp_model.CpModel,
+        left: cp_model.IntVar,
+        right: cp_model.IntVar,
+        name: str,
+    ) -> cp_model.IntVar:
+        result = model.new_bool_var(StaffingOptimizer._safe(name))
+        model.add(result <= left)
+        model.add(result <= right)
+        model.add(result >= left + right - 1)
+        return result
+
+    @staticmethod
     def _validate(
         teachers: tuple[StaffingTeacher, ...],
         requirements: tuple[StaffingRequirement, ...],
         group_ids: tuple[str, ...],
+        activities: tuple[StaffingActivity, ...],
     ) -> None:
         if len({teacher.id for teacher in teachers}) != len(teachers):
             raise ValueError("Teacher ids must be unique")
         if len({requirement.id for requirement in requirements}) != len(requirements):
             raise ValueError("Requirement ids must be unique")
+        if len({activity.id for activity in activities}) != len(activities):
+            raise ValueError("Activity ids must be unique")
         if len(set(group_ids)) != len(group_ids):
             raise ValueError("Group ids must be unique")
         known_groups = set(group_ids)
@@ -382,8 +517,25 @@ class StaffingOptimizer:
                 requirement.fixed_teacher_id is not None
                 and requirement.fixed_teacher_id not in known_teachers
             ):
+                raise ValueError(f"Unknown fixed teacher: {requirement.fixed_teacher_id}")
+        for activity in activities:
+            if activity.minutes <= 0:
+                raise ValueError("Activity minutes must be positive")
+            if activity.required_staff <= 0:
+                raise ValueError("Activity required staff must be positive")
+            unknown_teachers = (
+                activity.fixed_teacher_ids | activity.eligible_teacher_ids
+            ) - known_teachers
+            if unknown_teachers:
                 raise ValueError(
-                    f"Unknown fixed teacher: {requirement.fixed_teacher_id}"
+                    f"Unknown activity teachers for {activity.id}: "
+                    + ", ".join(sorted(unknown_teachers))
+                )
+            unknown_groups = activity.group_ids - known_groups
+            if unknown_groups:
+                raise ValueError(
+                    f"Unknown activity groups for {activity.id}: "
+                    + ", ".join(sorted(unknown_groups))
                 )
 
     @staticmethod
