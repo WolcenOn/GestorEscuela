@@ -15,6 +15,7 @@ from gestor_escuela.api.schemas import (
     UserCreate,
     UserRead,
 )
+from gestor_escuela.persistence.audit_models import AuditLogRow
 from gestor_escuela.persistence.models import (
     DayPlanRow,
     SchoolMembershipRow,
@@ -99,6 +100,37 @@ def list_school_memberships(
         .order_by(SchoolMembershipRow.created_at, SchoolMembershipRow.id)
     )
     return list(session.scalars(statement).all())
+
+
+@router.get("/schools/{school_id}/audit-log")
+def list_school_audit_log(
+    school_id: UUID,
+    session: SessionDep,
+    _actor: AdminDep,
+    limit: int = 100,
+) -> list[dict[str, object]]:
+    _require_school(school_id, session)
+    bounded_limit = max(1, min(200, limit))
+    rows = session.scalars(
+        select(AuditLogRow)
+        .where(AuditLogRow.school_id == school_id)
+        .order_by(AuditLogRow.created_at.desc(), AuditLogRow.id.desc())
+        .limit(bounded_limit)
+    ).all()
+    return [
+        {
+            "id": item.id,
+            "request_id": item.request_id,
+            "school_id": item.school_id,
+            "actor_user_id": item.actor_user_id,
+            "actor_role": item.actor_role,
+            "method": item.method,
+            "path": item.path,
+            "status_code": item.status_code,
+            "created_at": item.created_at,
+        }
+        for item in rows
+    ]
 
 
 @router.post(
