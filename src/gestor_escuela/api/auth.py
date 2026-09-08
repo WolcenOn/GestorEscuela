@@ -5,7 +5,7 @@ from enum import StrEnum
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -47,12 +47,24 @@ def _school_has_memberships(session: Session, school_id: UUID) -> bool:
     return membership_id is not None
 
 
+def _remember_actor(request: Request, session: Session, actor: ActorContext) -> ActorContext:
+    request.state.db_session = session
+    request.state.actor_user_id = actor.user_id
+    request.state.actor_role = actor.role.value
+    return actor
+
+
 def get_actor_context(
+    request: Request,
     session: SessionDep,
     school_id: UUID | None = None,
     x_actor_id: Annotated[UUID | None, Header(alias="X-Actor-Id")] = None,
     x_actor_role: Annotated[str | None, Header(alias="X-Actor-Role")] = None,
 ) -> ActorContext:
+    # Keep the request-associated database bind available to the audit middleware even when
+    # authentication later fails. No request body is stored by the audit trail.
+    request.state.db_session = session
+
     if x_actor_id is not None:
         if session.get(UserRow, x_actor_id) is None:
             raise HTTPException(
@@ -71,9 +83,17 @@ def get_actor_context(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail="Actor is not a member of this school",
                 )
-            return ActorContext(user_id=x_actor_id, role=_parse_role(membership.role))
+            return _remember_actor(
+                request,
+                session,
+                ActorContext(user_id=x_actor_id, role=_parse_role(membership.role)),
+            )
         if x_actor_role is not None:
-            return ActorContext(user_id=x_actor_id, role=_parse_role(x_actor_role))
+            return _remember_actor(
+                request,
+                session,
+                ActorContext(user_id=x_actor_id, role=_parse_role(x_actor_role)),
+            )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="School membership context is required",
@@ -91,7 +111,11 @@ def get_actor_context(
             detail="X-Actor-Id is required after school bootstrap",
         )
 
-    return ActorContext(user_id=None, role=_parse_role(x_actor_role))
+    return _remember_actor(
+        request,
+        session,
+        ActorContext(user_id=None, role=_parse_role(x_actor_role)),
+    )
 
 
 ActorDep = Annotated[ActorContext, Depends(get_actor_context)]
