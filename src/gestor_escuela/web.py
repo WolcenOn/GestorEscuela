@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from gestor_escuela.api.academic import router as academic_router
 from gestor_escuela.api.app import app
 from gestor_escuela.api.audit import audit_mutating_requests
+from gestor_escuela.api.auth_context import router as auth_context_router
 from gestor_escuela.api.operations import router as operations_router
 from gestor_escuela.api.plan_insights import router as plan_insights_router
 from gestor_escuela.api.roster import router as roster_router
@@ -51,6 +52,7 @@ if origins:
     )
 
 app.include_router(academic_router)
+app.include_router(auth_context_router)
 app.include_router(operations_router)
 app.include_router(plan_insights_router)
 app.include_router(roster_router)
