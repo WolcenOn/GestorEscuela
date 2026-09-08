@@ -48,3 +48,23 @@ class PlanningScenarioRead(BaseModel):
     created_by_user_id: UUID | None
     created_at: datetime
     updated_at: datetime
+
+
+class PlanningScenarioSnapshotPut(BaseModel):
+    source_hash: str | None = Field(default=None, max_length=64)
+    payload: dict[str, object]
+
+
+class PlanningScenarioSnapshotRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    school_id: UUID
+    academic_year_id: UUID
+    scenario_id: UUID
+    version: int
+    source_hash: str | None
+    payload: dict[str, object]
+    updated_by_user_id: UUID | None
+    created_at: datetime
+    updated_at: datetime
