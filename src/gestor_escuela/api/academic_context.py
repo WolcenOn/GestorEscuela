@@ -62,7 +62,10 @@ def _require_scenario(
         )
     )
     if scenario is None:
-        raise HTTPException(status_code=404, detail="Planning scenario not found for this school year")
+        raise HTTPException(
+            status_code=404,
+            detail="Planning scenario not found for this school year",
+        )
     return scenario
 
 
@@ -215,7 +218,10 @@ def put_planning_scenario_snapshot(
         session.commit()
     except IntegrityError as exc:
         session.rollback()
-        raise HTTPException(status_code=409, detail="Could not save planning scenario snapshot") from exc
+        raise HTTPException(
+            status_code=409,
+            detail="Could not save planning scenario snapshot",
+        ) from exc
     session.refresh(snapshot)
     return snapshot
 
