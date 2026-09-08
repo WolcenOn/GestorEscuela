@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Annotated
@@ -26,6 +27,21 @@ class ActorContext:
 
 
 SessionDep = Annotated[Session, Depends(get_session)]
+
+
+def legacy_role_bootstrap_enabled() -> bool:
+    """Temporary integration switch.
+
+    Keep enabled while the GitHub Pages integration still uses the prototype actor headers.
+    Production must set ALLOW_LEGACY_ROLE_BOOTSTRAP=false once signed authentication is enabled.
+    """
+
+    return os.getenv("ALLOW_LEGACY_ROLE_BOOTSTRAP", "true").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 
 
 def _parse_role(value: str) -> ActorRole:
@@ -88,7 +104,7 @@ def get_actor_context(
                 session,
                 ActorContext(user_id=x_actor_id, role=_parse_role(membership.role)),
             )
-        if x_actor_role is not None:
+        if x_actor_role is not None and legacy_role_bootstrap_enabled():
             return _remember_actor(
                 request,
                 session,
@@ -102,7 +118,13 @@ def get_actor_context(
     if x_actor_role is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="X-Actor-Id or X-Actor-Role header is required",
+            detail="Authenticated actor identity is required",
+        )
+
+    if not legacy_role_bootstrap_enabled():
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Legacy role bootstrap is disabled",
         )
 
     if school_id is not None and _school_has_memberships(session, school_id):
