@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 
 from gestor_escuela.api.academic import router as academic_router
 from gestor_escuela.api.app import app
+from gestor_escuela.api.audit import audit_mutating_requests
 from gestor_escuela.api.operations import router as operations_router
 from gestor_escuela.api.plan_insights import router as plan_insights_router
 from gestor_escuela.api.roster import router as roster_router
@@ -32,6 +33,8 @@ def _cors_origins() -> list[str]:
     configured = os.getenv("CORS_ORIGINS", "https://wolcenon.github.io")
     return [origin.strip().rstrip("/") for origin in configured.split(",") if origin.strip()]
 
+
+app.middleware("http")(audit_mutating_requests)
 
 origins = _cors_origins()
 if origins:
