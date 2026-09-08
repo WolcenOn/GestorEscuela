@@ -12,6 +12,7 @@ from gestor_escuela.api.audit import audit_mutating_requests
 from gestor_escuela.api.operations import router as operations_router
 from gestor_escuela.api.plan_insights import router as plan_insights_router
 from gestor_escuela.api.roster import router as roster_router
+from gestor_escuela.api.security import MaxRequestBodyMiddleware, SecurityHeadersMiddleware
 from gestor_escuela.api.staffing import router as staffing_router
 
 _STATIC_DIR = Path(__file__).with_name("static")
@@ -35,6 +36,8 @@ def _cors_origins() -> list[str]:
 
 
 app.middleware("http")(audit_mutating_requests)
+app.add_middleware(MaxRequestBodyMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
 
 origins = _cors_origins()
 if origins:
@@ -44,6 +47,7 @@ if origins:
         allow_credentials=False,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["Content-Type", "X-Actor-Id", "X-Actor-Role", "Authorization"],
+        expose_headers=["X-Request-Id"],
     )
 
 app.include_router(academic_router)
