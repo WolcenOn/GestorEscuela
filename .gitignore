@@ -7,3 +7,15 @@ __pycache__/
 dist/
 build/
 *.egg-info/
+
+# Local configuration / credentials
+.env
+.env.*
+!.env.example
+
+# Local databases and test artifacts
+*.db
+*.sqlite
+*.sqlite3
+playwright-report/
+test-results/
