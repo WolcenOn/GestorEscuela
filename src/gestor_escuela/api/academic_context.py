@@ -11,9 +11,15 @@ from gestor_escuela.api.academic_context_schemas import (
     AcademicYearRead,
     PlanningScenarioCreate,
     PlanningScenarioRead,
+    PlanningScenarioSnapshotPut,
+    PlanningScenarioSnapshotRead,
 )
 from gestor_escuela.api.auth import PlannerDep, SessionDep, ViewerDep
-from gestor_escuela.persistence.academic_models import AcademicYearRow, PlanningScenarioRow
+from gestor_escuela.persistence.academic_models import (
+    AcademicYearRow,
+    PlanningScenarioRow,
+    PlanningScenarioSnapshotRow,
+)
 from gestor_escuela.persistence.models import SchoolRow
 
 router = APIRouter()
@@ -40,6 +46,24 @@ def _require_academic_year(
     if academic_year is None:
         raise HTTPException(status_code=404, detail="Academic year not found for this school")
     return academic_year
+
+
+def _require_scenario(
+    school_id: UUID,
+    academic_year_id: UUID,
+    scenario_id: UUID,
+    session: SessionDep,
+) -> PlanningScenarioRow:
+    scenario = session.scalar(
+        select(PlanningScenarioRow).where(
+            PlanningScenarioRow.id == scenario_id,
+            PlanningScenarioRow.school_id == school_id,
+            PlanningScenarioRow.academic_year_id == academic_year_id,
+        )
+    )
+    if scenario is None:
+        raise HTTPException(status_code=404, detail="Planning scenario not found for this school year")
+    return scenario
 
 
 @router.post(
@@ -147,3 +171,76 @@ def list_planning_scenarios(
             .order_by(PlanningScenarioRow.created_at.desc(), PlanningScenarioRow.id.desc())
         ).all()
     )
+
+
+@router.put(
+    "/schools/{school_id}/academic-years/{academic_year_id}/scenarios/{scenario_id}/snapshot",
+    response_model=PlanningScenarioSnapshotRead,
+)
+def put_planning_scenario_snapshot(
+    school_id: UUID,
+    academic_year_id: UUID,
+    scenario_id: UUID,
+    payload: PlanningScenarioSnapshotPut,
+    session: SessionDep,
+    actor: PlannerDep,
+) -> PlanningScenarioSnapshotRow:
+    _require_school(school_id, session)
+    _require_academic_year(school_id, academic_year_id, session)
+    _require_scenario(school_id, academic_year_id, scenario_id, session)
+
+    snapshot = session.scalar(
+        select(PlanningScenarioSnapshotRow).where(
+            PlanningScenarioSnapshotRow.scenario_id == scenario_id
+        )
+    )
+    if snapshot is None:
+        snapshot = PlanningScenarioSnapshotRow(
+            school_id=school_id,
+            academic_year_id=academic_year_id,
+            scenario_id=scenario_id,
+            version=1,
+            source_hash=payload.source_hash,
+            payload=payload.payload,
+            updated_by_user_id=actor.user_id,
+        )
+        session.add(snapshot)
+    else:
+        snapshot.version += 1
+        snapshot.source_hash = payload.source_hash
+        snapshot.payload = payload.payload
+        snapshot.updated_by_user_id = actor.user_id
+
+    try:
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        raise HTTPException(status_code=409, detail="Could not save planning scenario snapshot") from exc
+    session.refresh(snapshot)
+    return snapshot
+
+
+@router.get(
+    "/schools/{school_id}/academic-years/{academic_year_id}/scenarios/{scenario_id}/snapshot",
+    response_model=PlanningScenarioSnapshotRead,
+)
+def get_planning_scenario_snapshot(
+    school_id: UUID,
+    academic_year_id: UUID,
+    scenario_id: UUID,
+    session: SessionDep,
+    _actor: ViewerDep,
+) -> PlanningScenarioSnapshotRow:
+    _require_school(school_id, session)
+    _require_academic_year(school_id, academic_year_id, session)
+    _require_scenario(school_id, academic_year_id, scenario_id, session)
+    snapshot = session.scalar(
+        select(PlanningScenarioSnapshotRow).where(
+            PlanningScenarioSnapshotRow.scenario_id == scenario_id,
+            PlanningScenarioSnapshotRow.school_id == school_id,
+            PlanningScenarioSnapshotRow.academic_year_id == academic_year_id,
+        )
+    )
+    if snapshot is None:
+        raise HTTPException(status_code=404, detail="Planning scenario has no saved snapshot")
+    return snapshot
