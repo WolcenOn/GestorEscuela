@@ -38,14 +38,24 @@ def test_mutating_school_request_is_audited(client: TestClient) -> None:
     assert school_response.status_code == 201
     school_id = school_response.json()["id"]
 
+    user_response = client.post(
+        "/users",
+        json={"email": "audit@example.test", "display_name": "Responsable Auditoría"},
+    )
+    assert user_response.status_code == 201
+    user_id = user_response.json()["id"]
+
     response = client.put(
-        f"/schools/{school_id}/configuration",
-        json={"groups": [], "time_slots": [], "teachers": [], "activities": []},
+        f"/schools/{school_id}/memberships",
+        json={"user_id": user_id, "role": "ADMIN"},
     )
     assert response.status_code == 200
     assert response.headers.get("X-Request-Id")
 
-    audit_response = client.get(f"/schools/{school_id}/audit-log")
+    audit_response = client.get(
+        f"/schools/{school_id}/audit-log",
+        headers={"X-Actor-Id": user_id},
+    )
     assert audit_response.status_code == 200
     rows = audit_response.json()
     assert rows
@@ -53,6 +63,6 @@ def test_mutating_school_request_is_audited(client: TestClient) -> None:
     assert latest["school_id"] == school_id
     assert latest["actor_role"] == "ADMIN"
     assert latest["method"] == "PUT"
-    assert latest["path"] == f"/schools/{school_id}/configuration"
+    assert latest["path"] == f"/schools/{school_id}/memberships"
     assert latest["status_code"] == 200
     assert latest["request_id"] == response.headers["X-Request-Id"]
