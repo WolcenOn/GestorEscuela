@@ -366,7 +366,8 @@ def _default_invitation_hours() -> int:
 def _validated_email(value: str) -> str:
     normalized = normalize_email(value)
     local, separator, domain = normalized.partition("@")
-    if not separator or not local or "." not in domain or domain.startswith(".") or domain.endswith("."):
+    invalid_domain = "." not in domain or domain.startswith(".") or domain.endswith(".")
+    if not separator or not local or invalid_domain:
         raise ValueError("Enter a valid email address")
     return normalized
 
