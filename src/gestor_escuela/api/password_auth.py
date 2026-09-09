@@ -28,7 +28,7 @@ from gestor_escuela.persistence.auth_models import (
 )
 from gestor_escuela.persistence.models import SchoolMembershipRow, SchoolRow, UserRow
 
-router = APIRouter(prefix="/auth", tags=["authentication"])
+router = APIRouter(tags=["authentication"])
 
 
 class RegisterSchoolRequest(BaseModel):
@@ -131,7 +131,7 @@ CurrentAuthDep = Annotated[CurrentAuth, Depends(current_auth)]
 
 
 @router.post(
-    "/register-school",
+    "/auth/register-school",
     response_model=AuthRead,
     status_code=status.HTTP_201_CREATED,
 )
@@ -156,7 +156,7 @@ def register_school(payload: RegisterSchoolRequest, session: SessionDep) -> Auth
     return _auth_response(session, user, raw_token, auth_session, school=school)
 
 
-@router.post("/login", response_model=AuthRead)
+@router.post("/auth/login", response_model=AuthRead)
 def login(payload: LoginRequest, session: SessionDep) -> AuthRead:
     email = normalize_email(payload.email)
     user = session.scalar(select(UserRow).where(UserRow.email == email))
@@ -176,7 +176,7 @@ def login(payload: LoginRequest, session: SessionDep) -> AuthRead:
     return _auth_response(session, user, raw_token, auth_session)
 
 
-@router.get("/me", response_model=AuthRead)
+@router.get("/auth/me", response_model=AuthRead)
 def me(current: CurrentAuthDep, session: SessionDep) -> AuthRead:
     return AuthRead(
         access_token="",
@@ -188,7 +188,7 @@ def me(current: CurrentAuthDep, session: SessionDep) -> AuthRead:
     )
 
 
-@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
 def logout(current: CurrentAuthDep, session: SessionDep) -> Response:
     current.auth_session.revoked_at = datetime.now(UTC)
     session.commit()
@@ -247,7 +247,7 @@ def list_invitations(
     return [_invitation_response(item) for item in rows]
 
 
-@router.post("/invitations/accept", response_model=AuthRead)
+@router.post("/auth/invitations/accept", response_model=AuthRead)
 def accept_invitation(payload: InvitationAcceptRequest, session: SessionDep) -> AuthRead:
     invitation = session.scalar(
         select(SchoolInvitationRow)
