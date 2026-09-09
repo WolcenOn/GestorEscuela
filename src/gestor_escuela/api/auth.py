@@ -10,6 +10,7 @@ from fastapi import Depends, Header, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from gestor_escuela.api.auth_tokens import authenticated_user
 from gestor_escuela.persistence.db import get_session
 from gestor_escuela.persistence.models import SchoolMembershipRow, UserRow
 
@@ -70,16 +71,51 @@ def _remember_actor(request: Request, session: Session, actor: ActorContext) -> 
     return actor
 
 
+def _membership_actor(
+    request: Request,
+    session: Session,
+    school_id: UUID,
+    user_id: UUID,
+) -> ActorContext:
+    membership = session.scalar(
+        select(SchoolMembershipRow).where(
+            SchoolMembershipRow.school_id == school_id,
+            SchoolMembershipRow.user_id == user_id,
+        )
+    )
+    if membership is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Actor is not a member of this school",
+        )
+    return _remember_actor(
+        request,
+        session,
+        ActorContext(user_id=user_id, role=_parse_role(membership.role)),
+    )
+
+
 def get_actor_context(
     request: Request,
     session: SessionDep,
     school_id: UUID | None = None,
+    authorization: Annotated[str | None, Header(alias="Authorization")] = None,
     x_actor_id: Annotated[UUID | None, Header(alias="X-Actor-Id")] = None,
     x_actor_role: Annotated[str | None, Header(alias="X-Actor-Role")] = None,
 ) -> ActorContext:
     # Keep the request-associated database bind available to the audit middleware even when
     # authentication later fails. No request body is stored by the audit trail.
     request.state.db_session = session
+
+    bearer_identity = authenticated_user(session, authorization)
+    if bearer_identity is not None:
+        user, _auth_session = bearer_identity
+        if school_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="School membership context is required",
+            )
+        return _membership_actor(request, session, school_id, user.id)
 
     if x_actor_id is not None:
         if session.get(UserRow, x_actor_id) is None:
@@ -88,22 +124,7 @@ def get_actor_context(
                 detail="Unknown actor identity",
             )
         if school_id is not None:
-            membership = session.scalar(
-                select(SchoolMembershipRow).where(
-                    SchoolMembershipRow.school_id == school_id,
-                    SchoolMembershipRow.user_id == x_actor_id,
-                )
-            )
-            if membership is None:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Actor is not a member of this school",
-                )
-            return _remember_actor(
-                request,
-                session,
-                ActorContext(user_id=x_actor_id, role=_parse_role(membership.role)),
-            )
+            return _membership_actor(request, session, school_id, x_actor_id)
         if x_actor_role is not None and legacy_role_bootstrap_enabled():
             return _remember_actor(
                 request,
