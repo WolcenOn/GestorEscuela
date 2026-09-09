@@ -12,6 +12,7 @@ from gestor_escuela.api.app import app
 from gestor_escuela.api.audit import audit_mutating_requests
 from gestor_escuela.api.auth_context import router as auth_context_router
 from gestor_escuela.api.operations import router as operations_router
+from gestor_escuela.api.password_auth import router as password_auth_router
 from gestor_escuela.api.plan_insights import router as plan_insights_router
 from gestor_escuela.api.roster import router as roster_router
 from gestor_escuela.api.security import MaxRequestBodyMiddleware, SecurityHeadersMiddleware
@@ -55,6 +56,7 @@ if origins:
 app.include_router(academic_router)
 app.include_router(academic_context_router)
 app.include_router(auth_context_router)
+app.include_router(password_auth_router)
 app.include_router(operations_router)
 app.include_router(plan_insights_router)
 app.include_router(roster_router)
