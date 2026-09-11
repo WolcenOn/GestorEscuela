@@ -13,6 +13,11 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from gestor_escuela.api.auth import AdminDep, SessionDep
+from gestor_escuela.api.auth_rate_limit import (
+    check_login_allowed,
+    clear_login_failures,
+    register_login_failure,
+)
 from gestor_escuela.api.auth_tokens import (
     hash_password,
     issue_session,
@@ -159,6 +164,7 @@ def register_school(payload: RegisterSchoolRequest, session: SessionDep) -> Auth
 @router.post("/auth/login", response_model=AuthRead)
 def login(payload: LoginRequest, session: SessionDep) -> AuthRead:
     email = normalize_email(payload.email)
+    check_login_allowed(session, email)
     user = session.scalar(select(UserRow).where(UserRow.email == email))
     credential = session.get(UserCredentialRow, user.id) if user is not None else None
     if (
@@ -167,10 +173,13 @@ def login(payload: LoginRequest, session: SessionDep) -> AuthRead:
         or not credential.is_active
         or not verify_password(payload.password, credential.password_hash)
     ):
+        register_login_failure(session, email)
+        session.commit()
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
         )
+    clear_login_failures(session, email)
     raw_token, auth_session = issue_session(session, user.id)
     session.commit()
     return _auth_response(session, user, raw_token, auth_session)
