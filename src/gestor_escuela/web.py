@@ -50,7 +50,7 @@ if origins:
         allow_credentials=False,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["Content-Type", "X-Actor-Id", "X-Actor-Role", "Authorization"],
-        expose_headers=["X-Request-Id"],
+        expose_headers=["X-Request-Id", "Retry-After"],
     )
 
 app.include_router(academic_router)
