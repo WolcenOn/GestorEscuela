@@ -107,6 +107,15 @@ class AuthRead(BaseModel):
     school: SchoolSummary | None = None
 
 
+class SessionRead(BaseModel):
+    id: UUID
+    created_at: datetime
+    last_seen_at: datetime
+    expires_at: datetime
+    revoked_at: datetime | None
+    current: bool
+
+
 class InvitationRead(BaseModel):
     id: UUID
     school_id: UUID
@@ -195,6 +204,49 @@ def me(current: CurrentAuthDep, session: SessionDep) -> AuthRead:
         memberships=_membership_summaries(session, current.user.id),
         school=None,
     )
+
+
+@router.get("/auth/sessions", response_model=list[SessionRead])
+def list_sessions(current: CurrentAuthDep, session: SessionDep) -> list[SessionRead]:
+    rows = session.scalars(
+        select(AuthSessionRow)
+        .where(AuthSessionRow.user_id == current.user.id)
+        .order_by(AuthSessionRow.created_at.desc(), AuthSessionRow.id.desc())
+    ).all()
+    return [
+        _session_response(item, current_session_id=current.auth_session.id)
+        for item in rows
+    ]
+
+
+@router.delete("/auth/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+def revoke_session(
+    session_id: UUID,
+    current: CurrentAuthDep,
+    session: SessionDep,
+) -> Response:
+    target = session.get(AuthSessionRow, session_id)
+    if target is None or target.user_id != current.user.id:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if target.revoked_at is None:
+        target.revoked_at = datetime.now(UTC)
+        session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/auth/logout-all", status_code=status.HTTP_204_NO_CONTENT)
+def logout_all(current: CurrentAuthDep, session: SessionDep) -> Response:
+    now = datetime.now(UTC)
+    rows = session.scalars(
+        select(AuthSessionRow).where(
+            AuthSessionRow.user_id == current.user.id,
+            AuthSessionRow.revoked_at.is_(None),
+        )
+    ).all()
+    for item in rows:
+        item.revoked_at = now
+    session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
@@ -334,6 +386,21 @@ def _auth_response(
         user=UserSummary.model_validate(user),
         memberships=_membership_summaries(session, user.id),
         school=SchoolSummary.model_validate(school) if school is not None else None,
+    )
+
+
+def _session_response(
+    auth_session: AuthSessionRow,
+    *,
+    current_session_id: UUID,
+) -> SessionRead:
+    return SessionRead(
+        id=auth_session.id,
+        created_at=auth_session.created_at,
+        last_seen_at=auth_session.last_seen_at,
+        expires_at=auth_session.expires_at,
+        revoked_at=auth_session.revoked_at,
+        current=auth_session.id == current_session_id,
     )
 
 
