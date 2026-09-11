@@ -72,12 +72,32 @@ def session_ttl() -> timedelta:
     return timedelta(hours=max(1, min(24 * 30, hours)))
 
 
+def session_idle_timeout() -> timedelta:
+    raw = os.getenv("AUTH_SESSION_IDLE_MINUTES", "120")
+    try:
+        minutes = int(raw)
+    except ValueError:
+        minutes = 120
+    return timedelta(minutes=max(5, min(24 * 7 * 60, minutes)))
+
+
+def session_touch_interval() -> timedelta:
+    raw = os.getenv("AUTH_SESSION_TOUCH_INTERVAL_MINUTES", "5")
+    try:
+        minutes = int(raw)
+    except ValueError:
+        minutes = 5
+    return timedelta(minutes=max(1, min(60, minutes)))
+
+
 def issue_session(session: Session, user_id: UUID) -> tuple[str, AuthSessionRow]:
     token = secrets.token_urlsafe(32)
+    now = datetime.now(UTC)
     row = AuthSessionRow(
         user_id=user_id,
         token_hash=token_digest(token),
-        expires_at=datetime.now(UTC) + session_ttl(),
+        expires_at=now + session_ttl(),
+        last_seen_at=now,
     )
     session.add(row)
     session.flush()
@@ -116,6 +136,14 @@ def authenticated_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication session is invalid or expired",
         )
+    last_seen_at = _aware(auth_session.last_seen_at)
+    if last_seen_at + session_idle_timeout() <= now:
+        auth_session.revoked_at = now
+        session.commit()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication session is invalid or expired",
+        )
     credential = session.get(UserCredentialRow, auth_session.user_id)
     user = session.get(UserRow, auth_session.user_id)
     if user is None or credential is None or not credential.is_active:
@@ -123,6 +151,9 @@ def authenticated_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User account is not active",
         )
+    if now - last_seen_at >= session_touch_interval():
+        auth_session.last_seen_at = now
+        session.commit()
     return user, auth_session
 
 
