@@ -69,6 +69,7 @@ def test_repeated_login_failures_are_throttled(
 
         blocked = client.post(
             "/auth/login",
+            headers={"Origin": "https://wolcenon.github.io"},
             json={
                 "email": "admin@example.test",
                 "password": "correct horse battery staple",
@@ -76,6 +77,8 @@ def test_repeated_login_failures_are_throttled(
         )
         assert blocked.status_code == 429
         assert int(blocked.headers["retry-after"]) > 0
+        exposed = blocked.headers["access-control-expose-headers"].lower()
+        assert "retry-after" in exposed
         assert blocked.json()["detail"] == "Too many failed login attempts. Try again later."
 
 
