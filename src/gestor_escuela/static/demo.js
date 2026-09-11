@@ -2,6 +2,105 @@
   const setup = document.getElementById("setup");
   if (!setup) return;
 
+  const authTokenKey = "gestorEscuelaAccessToken";
+  const authToken = () => sessionStorage.getItem(authTokenKey) || "";
+  const rememberAuthenticatedWorkspace = (auth) => {
+    const school = auth?.school;
+    const user = auth?.user;
+    if (!school?.id || !user?.id || !auth?.access_token) {
+      throw new Error("El backend no devolvió una sesión de centro completa.");
+    }
+    sessionStorage.setItem(authTokenKey, auth.access_token);
+    localStorage.setItem(
+      stateKey,
+      JSON.stringify({
+        actorId: user.id,
+        schoolId: school.id,
+        schoolName: school.name,
+      }),
+    );
+    return {school, user};
+  };
+
+  // The bundled operator UI now prefers the same Bearer session as the browser application.
+  // Actor ID remains only as a compatibility fallback for workspaces saved before password auth.
+  headers = (scoped = true) => {
+    const token = authToken();
+    if (token) {
+      return {"Content-Type": "application/json", Authorization: `Bearer ${token}`};
+    }
+    const current = workspace();
+    if (!current) return {"Content-Type": "application/json"};
+    return scoped
+      ? {"Content-Type": "application/json", "X-Actor-Id": current.actorId}
+      : {
+          "Content-Type": "application/json",
+          "X-Actor-Id": current.actorId,
+          "X-Actor-Role": "ADMIN",
+        };
+  };
+
+  const setupGrid = setup.querySelector(".grid.three");
+  if (setupGrid && !document.getElementById("password")) {
+    const passwordLabel = document.createElement("label");
+    passwordLabel.textContent = "Contraseña";
+    const passwordInput = document.createElement("input");
+    passwordInput.id = "password";
+    passwordInput.type = "password";
+    passwordInput.minLength = 10;
+    passwordInput.maxLength = 128;
+    passwordInput.autocomplete = "new-password";
+    passwordInput.placeholder = "Mínimo 10 caracteres";
+    passwordLabel.append(passwordInput);
+    setupGrid.append(passwordLabel);
+  }
+
+  const bootstrapButton = document.getElementById("bootstrapBtn");
+  if (bootstrapButton) {
+    bootstrapButton.onclick = async () => {
+      try {
+        const email = document.getElementById("email").value.trim();
+        const display = document.getElementById("displayName").value.trim();
+        const schoolName = document.getElementById("schoolName").value.trim();
+        const password = document.getElementById("password")?.value || "";
+        if (!email || !display || !schoolName || !password) {
+          throw new Error("Completa nombre, email, centro y contraseña.");
+        }
+        if (password.length < 10) {
+          throw new Error("La contraseña debe tener al menos 10 caracteres.");
+        }
+        status("setupStatus", "Creando cuenta administradora y centro...");
+        const auth = await request("/auth/register-school", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({
+            email,
+            password,
+            display_name: display,
+            school_name: schoolName,
+          }),
+        });
+        rememberAuthenticatedWorkspace(auth);
+        config = structuredClone(demoConfig);
+        await saveConfig();
+        showApp();
+        renderAll();
+      } catch (error) {
+        status("setupStatus", error.message, "error");
+      }
+    };
+  }
+
+  const resetButton = document.getElementById("resetBtn");
+  if (resetButton) {
+    resetButton.onclick = () => {
+      sessionStorage.removeItem(authTokenKey);
+      localStorage.removeItem(stateKey);
+      localStorage.removeItem(plansKey);
+      location.reload();
+    };
+  }
+
   const oldDemoButton = document.getElementById("demoBtn");
   if (oldDemoButton) oldDemoButton.classList.add("hidden");
 
@@ -180,11 +279,11 @@
       "Demo completa cargada · 6 grupos con 30 clases semanales cada uno";
   }
 
-  async function saveDemoConfiguration(schoolId, actorId) {
+  async function saveDemoConfiguration(schoolId) {
     config = buildDemoConfig();
     await request(`/schools/${schoolId}/academic-configuration`, {
       method: "PUT",
-      headers: {"Content-Type": "application/json", "X-Actor-Id": actorId},
+      headers: headers(true),
       body: JSON.stringify(config),
     });
     prepareDemoView();
@@ -199,7 +298,7 @@
     try {
       restoreButton.disabled = true;
       document.getElementById("headerMeta").textContent = "Cargando demo completa...";
-      await saveDemoConfiguration(current.schoolId, current.actorId);
+      await saveDemoConfiguration(current.schoolId);
     } catch (error) {
       alert(`No se pudo cargar la demo: ${error.message}`);
     } finally {
@@ -210,36 +309,20 @@
   async function createDemoWorkspace() {
     try {
       button.disabled = true;
-      status("setupStatus", "Creando centro demo y horario completo...");
+      status("setupStatus", "Creando cuenta y centro demo con sesión segura...");
       const token = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-      const user = await request("/users", {
+      const auth = await request("/auth/register-school", {
         method: "POST",
-        headers: {"Content-Type": "application/json", "X-Actor-Role": "ADMIN"},
+        headers: {"Content-Type": "application/json"},
         body: JSON.stringify({
           email: `demo-${token}@gestorescuela.test`,
+          password: `demo-password-${token}`,
           display_name: "Dirección Demo",
+          school_name: "CEIP Horizonte · Demo",
         }),
       });
-      const school = await request("/schools", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Actor-Id": user.id,
-          "X-Actor-Role": "ADMIN",
-        },
-        body: JSON.stringify({name: "CEIP Horizonte · Demo"}),
-      });
-      await request(`/schools/${school.id}/memberships`, {
-        method: "PUT",
-        headers: {"Content-Type": "application/json", "X-Actor-Role": "ADMIN"},
-        body: JSON.stringify({user_id: user.id, role: "ADMIN"}),
-      });
-
-      localStorage.setItem(
-        stateKey,
-        JSON.stringify({actorId: user.id, schoolId: school.id, schoolName: school.name}),
-      );
-      await saveDemoConfiguration(school.id, user.id);
+      const {school} = rememberAuthenticatedWorkspace(auth);
+      await saveDemoConfiguration(school.id);
     } catch (error) {
       status("setupStatus", error.message, "error");
       button.disabled = false;
