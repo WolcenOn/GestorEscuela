@@ -31,13 +31,13 @@ SessionDep = Annotated[Session, Depends(get_session)]
 
 
 def legacy_role_bootstrap_enabled() -> bool:
-    """Temporary integration switch.
+    """Return whether the pre-Bearer role bootstrap is explicitly enabled.
 
-    Keep enabled while the GitHub Pages integration still uses the prototype actor headers.
-    Production must set ALLOW_LEGACY_ROLE_BOOTSTRAP=false once signed authentication is enabled.
+    The compatibility path is disabled by default. Deployments that still need to migrate an
+    older installation may opt in temporarily with ALLOW_LEGACY_ROLE_BOOTSTRAP=true.
     """
 
-    return os.getenv("ALLOW_LEGACY_ROLE_BOOTSTRAP", "true").strip().lower() in {
+    return os.getenv("ALLOW_LEGACY_ROLE_BOOTSTRAP", "false").strip().lower() in {
         "1",
         "true",
         "yes",
