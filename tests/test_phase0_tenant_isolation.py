@@ -86,6 +86,7 @@ def test_bearer_identity_cannot_cross_school_boundaries(
         school_b = _register(client, email="admin-b@example.test", school_name="CEIP B")
         school_a_id = school_a["school"]["id"]
         school_b_id = school_b["school"]["id"]
+        user_a_id = school_a["user"]["id"]
         headers_a = _bearer(school_a)
         headers_b = _bearer(school_b)
 
@@ -120,6 +121,7 @@ def test_bearer_identity_cannot_cross_school_boundaries(
                 f"{scenario_b_id}/snapshot",
                 headers=headers_a,
             ),
+            client.get(f"/schools/{school_b_id}/memberships", headers=headers_a),
             client.get(f"/schools/{school_b_id}/invitations", headers=headers_a),
             client.get(f"/schools/{school_b_id}/audit-log", headers=headers_a),
         ]
@@ -127,6 +129,17 @@ def test_bearer_identity_cannot_cross_school_boundaries(
             _assert_cross_tenant_forbidden(response)
 
         write_attempts = [
+            client.put(
+                f"/schools/{school_b_id}/academic-configuration",
+                headers=headers_a,
+                json={
+                    "groups": [],
+                    "subjects": [],
+                    "time_slots": [],
+                    "teachers": [],
+                    "activities": [],
+                },
+            ),
             client.put(
                 f"/schools/{school_b_id}/students",
                 headers=headers_a,
@@ -136,6 +149,11 @@ def test_bearer_identity_cannot_cross_school_boundaries(
                 f"/schools/{school_b_id}/operations",
                 headers=headers_a,
                 json={"recess_shifts": [], "scheduled_activities": []},
+            ),
+            client.put(
+                f"/schools/{school_b_id}/memberships",
+                headers=headers_a,
+                json={"user_id": user_a_id, "role": "ADMIN"},
             ),
             client.post(
                 f"/schools/{school_b_id}/academic-years",
