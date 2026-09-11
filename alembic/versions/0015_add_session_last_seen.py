@@ -17,7 +17,7 @@ def upgrade() -> None:
         "auth_sessions",
         sa.Column("last_seen_at", sa.DateTime(timezone=True), nullable=True),
     )
-    op.execute("UPDATE auth_sessions SET last_seen_at = created_at WHERE last_seen_at IS NULL")
+    op.execute("UPDATE auth_sessions SET last_seen_at = NOW() WHERE last_seen_at IS NULL")
     op.alter_column("auth_sessions", "last_seen_at", nullable=False)
 
 
