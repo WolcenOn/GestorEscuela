@@ -27,7 +27,9 @@ class AuditLogRow(Base):
     school_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), index=True)
     actor_user_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), index=True)
     actor_role: Mapped[str | None] = mapped_column(String(20))
-    event_type: Mapped[str] = mapped_column(String(80), nullable=False, default="http.mutation", index=True)
+    event_type: Mapped[str] = mapped_column(
+        String(80), nullable=False, default="http.mutation", index=True
+    )
     method: Mapped[str] = mapped_column(String(8), nullable=False)
     path: Mapped[str] = mapped_column(String(500), nullable=False)
     status_code: Mapped[int] = mapped_column(Integer, nullable=False)
