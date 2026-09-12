@@ -13,7 +13,8 @@ from gestor_escuela.web import app
 
 
 @pytest.fixture
-def client() -> Generator[TestClient, None, None]:
+def client(monkeypatch: pytest.MonkeyPatch) -> Generator[TestClient, None, None]:
+    monkeypatch.setenv("ALLOW_LEGACY_ROLE_BOOTSTRAP", "true")
     engine = create_engine(
         "sqlite+pysqlite:///:memory:",
         connect_args={"check_same_thread": False},
@@ -33,7 +34,7 @@ def client() -> Generator[TestClient, None, None]:
     Base.metadata.drop_all(engine)
 
 
-def test_mutating_school_request_is_audited(client: TestClient) -> None:
+def test_mutating_school_request_is_audited_with_semantic_event(client: TestClient) -> None:
     school_response = client.post("/schools", json={"name": "CEIP Auditoría"})
     assert school_response.status_code == 201
     school_id = school_response.json()["id"]
@@ -62,6 +63,7 @@ def test_mutating_school_request_is_audited(client: TestClient) -> None:
     latest = rows[0]
     assert latest["school_id"] == school_id
     assert latest["actor_role"] == "ADMIN"
+    assert latest["event_type"] == "membership.update"
     assert latest["method"] == "PUT"
     assert latest["path"] == f"/schools/{school_id}/memberships"
     assert latest["status_code"] == 200
