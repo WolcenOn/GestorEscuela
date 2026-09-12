@@ -249,8 +249,8 @@ def change_password(
             AuthSessionRow.revoked_at.is_(None),
         )
     ).all()
-    for item in other_sessions:
-        item.revoked_at = now
+    for other_session in other_sessions:
+        other_session.revoked_at = now
     session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -272,8 +272,8 @@ def request_password_reset(
                 PasswordResetTokenRow.used_at.is_(None),
             )
         ).all()
-        for item in previous:
-            item.used_at = now
+        for previous_token in previous:
+            previous_token.used_at = now
         raw_token = secrets.token_urlsafe(32)
         session.add(
             PasswordResetTokenRow(
@@ -318,16 +318,16 @@ def confirm_password_reset(
             PasswordResetTokenRow.used_at.is_(None),
         )
     ).all()
-    for item in other_tokens:
-        item.used_at = now
+    for reset_token in other_tokens:
+        reset_token.used_at = now
     active_sessions = session.scalars(
         select(AuthSessionRow).where(
             AuthSessionRow.user_id == reset.user_id,
             AuthSessionRow.revoked_at.is_(None),
         )
     ).all()
-    for item in active_sessions:
-        item.revoked_at = now
+    for auth_session in active_sessions:
+        auth_session.revoked_at = now
     session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -369,8 +369,8 @@ def logout_all(current: CurrentAuthDep, session: SessionDep) -> Response:
             AuthSessionRow.revoked_at.is_(None),
         )
     ).all()
-    for item in rows:
-        item.revoked_at = now
+    for auth_session in rows:
+        auth_session.revoked_at = now
     session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
