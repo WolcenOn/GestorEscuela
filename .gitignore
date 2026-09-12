@@ -13,9 +13,11 @@ build/
 .env.*
 !.env.example
 
-# Local databases and test artifacts
+# Local databases, backups and test artifacts
 *.db
 *.sqlite
 *.sqlite3
+*.dump
+backups/
 playwright-report/
 test-results/
