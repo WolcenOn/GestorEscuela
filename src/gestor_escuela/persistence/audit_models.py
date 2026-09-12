@@ -14,7 +14,8 @@ class AuditLogRow(Base):
     """Minimal append-only metadata about mutating API requests.
 
     Request/response bodies are deliberately not stored here so that the audit trail does not
-    become a shadow copy of student, staff or timetable data.
+    become a shadow copy of student, staff or timetable data. ``event_type`` gives callers a
+    stable semantic label without duplicating the underlying payload.
     """
 
     __tablename__ = "audit_logs"
@@ -26,6 +27,7 @@ class AuditLogRow(Base):
     school_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), index=True)
     actor_user_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), index=True)
     actor_role: Mapped[str | None] = mapped_column(String(20))
+    event_type: Mapped[str] = mapped_column(String(80), nullable=False, default="http.mutation", index=True)
     method: Mapped[str] = mapped_column(String(8), nullable=False)
     path: Mapped[str] = mapped_column(String(500), nullable=False)
     status_code: Mapped[int] = mapped_column(Integer, nullable=False)
