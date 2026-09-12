@@ -22,7 +22,14 @@ MAX_REQUEST_BODY_BYTES=4194304
 ENABLE_HSTS=true
 ```
 
-Para recuperación de contraseña se necesitan además `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM` y `SMTP_STARTTLS`. `SMTP_PASSWORD` debe introducirse únicamente como secreto en Railway.
+Para recuperación de contraseña en Railway Hobby se usa la API HTTPS de Resend. Se necesitan además:
+
+```text
+RESEND_API_KEY=<secreto configurado en Railway>
+EMAIL_FROM=Planificador del centro <no-reply@dominio-verificado>
+```
+
+`RESEND_API_KEY` debe introducirse únicamente como secreto en Railway. Si `RESEND_API_KEY` o `EMAIL_FROM` están vacíos, el endpoint de solicitud de recuperación mantiene la respuesta genérica `202`, pero no intenta enviar correo.
 
 ## 2. Despliegue
 
@@ -120,7 +127,7 @@ No considerar Fase 0 lista para fusión final hasta confirmar conjuntamente:
 - CI backend verde incluyendo migración, backup y restore;
 - CI frontend verde y Pages desplegado;
 - `ALLOW_LEGACY_ROLE_BOOTSTRAP=false` en Railway;
-- SMTP configurado y recuperación de contraseña probada en producción o staging;
+- Resend configurado y recuperación de contraseña probada en producción o staging;
 - rulesets/required checks de `main` activos en ambos repositorios;
 - backup real creado y restauración ensayada al menos en un entorno no productivo;
 - documentación y checklist revisados;
