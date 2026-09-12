@@ -117,20 +117,22 @@ def list_school_audit_log(
         .order_by(AuditLogRow.created_at.desc(), AuditLogRow.id.desc())
         .limit(bounded_limit)
     ).all()
-    return [
-        {
-            "id": item.id,
-            "request_id": item.request_id,
-            "school_id": item.school_id,
-            "actor_user_id": item.actor_user_id,
-            "actor_role": item.actor_role,
-            "method": item.method,
-            "path": item.path,
-            "status_code": item.status_code,
-            "created_at": item.created_at,
-        }
-        for item in rows
-    ]
+    return [_audit_row(item) for item in rows]
+
+
+def _audit_row(item: AuditLogRow) -> dict[str, object]:
+    return {
+        "id": item.id,
+        "request_id": item.request_id,
+        "school_id": item.school_id,
+        "actor_user_id": item.actor_user_id,
+        "actor_role": item.actor_role,
+        "event_type": item.event_type,
+        "method": item.method,
+        "path": item.path,
+        "status_code": item.status_code,
+        "created_at": item.created_at,
+    }
 
 
 @router.post(
