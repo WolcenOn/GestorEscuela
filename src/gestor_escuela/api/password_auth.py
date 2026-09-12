@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -153,11 +153,25 @@ class CurrentAuth:
     auth_session: AuthSessionRow
 
 
+def _remember_account_request(
+    request: Request,
+    session: SessionDep,
+    *,
+    user_id: UUID | None = None,
+) -> None:
+    request.state.db_session = session
+    if user_id is not None:
+        request.state.actor_user_id = user_id
+        request.state.actor_role = None
+
+
 def current_auth(
+    request: Request,
     session: SessionDep,
     authorization: Annotated[str | None, Header(alias="Authorization")] = None,
 ) -> CurrentAuth:
     user, auth_session = require_authenticated_user(session, authorization)
+    _remember_account_request(request, session, user_id=user.id)
     return CurrentAuth(user=user, auth_session=auth_session)
 
 
@@ -169,7 +183,12 @@ CurrentAuthDep = Annotated[CurrentAuth, Depends(current_auth)]
     response_model=AuthRead,
     status_code=status.HTTP_201_CREATED,
 )
-def register_school(payload: RegisterSchoolRequest, session: SessionDep) -> AuthRead:
+def register_school(
+    payload: RegisterSchoolRequest,
+    request: Request,
+    session: SessionDep,
+) -> AuthRead:
+    _remember_account_request(request, session)
     email = normalize_email(payload.email)
     if session.scalar(select(UserRow.id).where(UserRow.email == email)) is not None:
         raise HTTPException(status_code=409, detail="A user with this email already exists")
@@ -187,11 +206,13 @@ def register_school(payload: RegisterSchoolRequest, session: SessionDep) -> Auth
     except IntegrityError as exc:
         session.rollback()
         raise HTTPException(status_code=409, detail="Could not create the account") from exc
+    _remember_account_request(request, session, user_id=user.id)
     return _auth_response(session, user, raw_token, auth_session, school=school)
 
 
 @router.post("/auth/login", response_model=AuthRead)
-def login(payload: LoginRequest, session: SessionDep) -> AuthRead:
+def login(payload: LoginRequest, request: Request, session: SessionDep) -> AuthRead:
+    _remember_account_request(request, session)
     email = normalize_email(payload.email)
     check_login_allowed(session, email)
     user = session.scalar(select(UserRow).where(UserRow.email == email))
@@ -211,6 +232,7 @@ def login(payload: LoginRequest, session: SessionDep) -> AuthRead:
     clear_login_failures(session, email)
     raw_token, auth_session = issue_session(session, user.id)
     session.commit()
+    _remember_account_request(request, session, user_id=user.id)
     return _auth_response(session, user, raw_token, auth_session)
 
 
@@ -259,8 +281,10 @@ def change_password(
 def request_password_reset(
     payload: PasswordResetRequest,
     background_tasks: BackgroundTasks,
+    request: Request,
     session: SessionDep,
 ) -> dict[str, str]:
+    _remember_account_request(request, session)
     email = normalize_email(payload.email)
     user = session.scalar(select(UserRow).where(UserRow.email == email))
     credential = session.get(UserCredentialRow, user.id) if user is not None else None
@@ -290,8 +314,10 @@ def request_password_reset(
 @router.post("/auth/password/reset-confirm", status_code=status.HTTP_204_NO_CONTENT)
 def confirm_password_reset(
     payload: PasswordResetConfirmRequest,
+    request: Request,
     session: SessionDep,
 ) -> Response:
+    _remember_account_request(request, session)
     reset = session.scalar(
         select(PasswordResetTokenRow)
         .where(PasswordResetTokenRow.token_hash == token_digest(payload.token))
@@ -309,6 +335,7 @@ def confirm_password_reset(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Password reset token is invalid or expired",
         )
+    _remember_account_request(request, session, user_id=reset.user_id)
     credential.password_hash = hash_password(payload.new_password)
     reset.used_at = now
     other_tokens = session.scalars(
@@ -435,7 +462,12 @@ def list_invitations(
 
 
 @router.post("/auth/invitations/accept", response_model=AuthRead)
-def accept_invitation(payload: InvitationAcceptRequest, session: SessionDep) -> AuthRead:
+def accept_invitation(
+    payload: InvitationAcceptRequest,
+    request: Request,
+    session: SessionDep,
+) -> AuthRead:
+    _remember_account_request(request, session)
     invitation = session.scalar(
         select(SchoolInvitationRow)
         .where(SchoolInvitationRow.token_hash == token_digest(payload.token))
@@ -494,6 +526,7 @@ def accept_invitation(payload: InvitationAcceptRequest, session: SessionDep) -> 
     invitation.accepted_by_user_id = user.id
     raw_token, auth_session = issue_session(session, user.id)
     session.commit()
+    _remember_account_request(request, session, user_id=user.id)
     school = session.get(SchoolRow, invitation.school_id)
     return _auth_response(session, user, raw_token, auth_session, school=school)
 
