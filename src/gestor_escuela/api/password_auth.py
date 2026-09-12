@@ -7,11 +7,12 @@ from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Response, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
+from gestor_escuela.api import password_reset_delivery
 from gestor_escuela.api.auth import AdminDep, SessionDep
 from gestor_escuela.api.auth_rate_limit import (
     check_login_allowed,
@@ -28,6 +29,7 @@ from gestor_escuela.api.auth_tokens import (
 )
 from gestor_escuela.persistence.auth_models import (
     AuthSessionRow,
+    PasswordResetTokenRow,
     SchoolInvitationRow,
     UserCredentialRow,
 )
@@ -58,6 +60,25 @@ class LoginRequest(BaseModel):
         return _validated_email(value)
 
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=10, max_length=128)
+
+
+class PasswordResetRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: str) -> str:
+        return _validated_email(value)
+
+
+class PasswordResetConfirmRequest(BaseModel):
+    token: str = Field(min_length=20, max_length=256)
+    new_password: str = Field(min_length=10, max_length=128)
+
+
 class InvitationCreateRequest(BaseModel):
     email: str = Field(min_length=3, max_length=320)
     role: Literal["ADMIN", "PLANNER", "VIEWER"]
@@ -84,9 +105,8 @@ class UserSummary(BaseModel):
 
 
 class MembershipSummary(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
     school_id: UUID
+    school_name: str
     user_id: UUID
     role: str
 
@@ -204,6 +224,112 @@ def me(current: CurrentAuthDep, session: SessionDep) -> AuthRead:
         memberships=_membership_summaries(session, current.user.id),
         school=None,
     )
+
+
+@router.post("/auth/password/change", status_code=status.HTTP_204_NO_CONTENT)
+def change_password(
+    payload: ChangePasswordRequest,
+    current: CurrentAuthDep,
+    session: SessionDep,
+) -> Response:
+    credential = session.get(UserCredentialRow, current.user.id)
+    if credential is None or not credential.is_active or not verify_password(
+        payload.current_password, credential.password_hash
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Current password is incorrect",
+        )
+    credential.password_hash = hash_password(payload.new_password)
+    now = datetime.now(UTC)
+    other_sessions = session.scalars(
+        select(AuthSessionRow).where(
+            AuthSessionRow.user_id == current.user.id,
+            AuthSessionRow.id != current.auth_session.id,
+            AuthSessionRow.revoked_at.is_(None),
+        )
+    ).all()
+    for item in other_sessions:
+        item.revoked_at = now
+    session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/auth/password/reset-request", status_code=status.HTTP_202_ACCEPTED)
+def request_password_reset(
+    payload: PasswordResetRequest,
+    background_tasks: BackgroundTasks,
+    session: SessionDep,
+) -> dict[str, str]:
+    email = normalize_email(payload.email)
+    user = session.scalar(select(UserRow).where(UserRow.email == email))
+    credential = session.get(UserCredentialRow, user.id) if user is not None else None
+    if user is not None and credential is not None and credential.is_active:
+        now = datetime.now(UTC)
+        previous = session.scalars(
+            select(PasswordResetTokenRow).where(
+                PasswordResetTokenRow.user_id == user.id,
+                PasswordResetTokenRow.used_at.is_(None),
+            )
+        ).all()
+        for item in previous:
+            item.used_at = now
+        raw_token = secrets.token_urlsafe(32)
+        session.add(
+            PasswordResetTokenRow(
+                user_id=user.id,
+                token_hash=token_digest(raw_token),
+                expires_at=now + _password_reset_ttl(),
+            )
+        )
+        session.commit()
+        background_tasks.add_task(password_reset_delivery.deliver_password_reset, email, raw_token)
+    return {"status": "accepted"}
+
+
+@router.post("/auth/password/reset-confirm", status_code=status.HTTP_204_NO_CONTENT)
+def confirm_password_reset(
+    payload: PasswordResetConfirmRequest,
+    session: SessionDep,
+) -> Response:
+    reset = session.scalar(
+        select(PasswordResetTokenRow)
+        .where(PasswordResetTokenRow.token_hash == token_digest(payload.token))
+        .with_for_update()
+    )
+    now = datetime.now(UTC)
+    if reset is None or reset.used_at is not None or _aware(reset.expires_at) <= now:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password reset token is invalid or expired",
+        )
+    credential = session.get(UserCredentialRow, reset.user_id)
+    if credential is None or not credential.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password reset token is invalid or expired",
+        )
+    credential.password_hash = hash_password(payload.new_password)
+    reset.used_at = now
+    other_tokens = session.scalars(
+        select(PasswordResetTokenRow).where(
+            PasswordResetTokenRow.user_id == reset.user_id,
+            PasswordResetTokenRow.id != reset.id,
+            PasswordResetTokenRow.used_at.is_(None),
+        )
+    ).all()
+    for item in other_tokens:
+        item.used_at = now
+    active_sessions = session.scalars(
+        select(AuthSessionRow).where(
+            AuthSessionRow.user_id == reset.user_id,
+            AuthSessionRow.revoked_at.is_(None),
+        )
+    ).all()
+    for item in active_sessions:
+        item.revoked_at = now
+    session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/auth/sessions", response_model=list[SessionRead])
@@ -405,12 +531,21 @@ def _session_response(
 
 
 def _membership_summaries(session: SessionDep, user_id: UUID) -> list[MembershipSummary]:
-    rows = session.scalars(
-        select(SchoolMembershipRow)
+    rows = session.execute(
+        select(SchoolMembershipRow, SchoolRow.name)
+        .join(SchoolRow, SchoolRow.id == SchoolMembershipRow.school_id)
         .where(SchoolMembershipRow.user_id == user_id)
         .order_by(SchoolMembershipRow.created_at, SchoolMembershipRow.id)
     ).all()
-    return [MembershipSummary.model_validate(item) for item in rows]
+    return [
+        MembershipSummary(
+            school_id=membership.school_id,
+            school_name=school_name,
+            user_id=membership.user_id,
+            role=membership.role,
+        )
+        for membership, school_name in rows
+    ]
 
 
 def _invitation_response(
@@ -437,6 +572,15 @@ def _default_invitation_hours() -> int:
     except ValueError:
         value = 72
     return max(1, min(24 * 30, value))
+
+
+def _password_reset_ttl() -> timedelta:
+    raw = os.getenv("PASSWORD_RESET_TTL_MINUTES", "30")
+    try:
+        value = int(raw)
+    except ValueError:
+        value = 30
+    return timedelta(minutes=max(5, min(24 * 60, value)))
 
 
 def _validated_email(value: str) -> str:
