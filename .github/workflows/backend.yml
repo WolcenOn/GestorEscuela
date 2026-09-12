@@ -51,8 +51,26 @@ jobs:
       - name: Mypy
         run: mypy src
 
-      - name: Apply PostgreSQL migrations
-        run: alembic upgrade head
+      - name: Upgrade PostgreSQL from pre-account-lifecycle revision
+        run: |
+          alembic upgrade 0015
+          alembic upgrade head
+
+      - name: Verify PostgreSQL backup and restore
+        run: |
+          bash scripts/backup_postgres.sh /tmp/gestor-escuela-ci.dump
+          psql postgresql://gestor:gestor@localhost:5432/postgres -v ON_ERROR_STOP=1 \
+            -c 'DROP DATABASE IF EXISTS gestor_restore_check'
+          psql postgresql://gestor:gestor@localhost:5432/postgres -v ON_ERROR_STOP=1 \
+            -c 'CREATE DATABASE gestor_restore_check'
+          DATABASE_URL=postgresql+psycopg://gestor:gestor@localhost:5432/gestor_restore_check \
+            bash scripts/restore_postgres.sh /tmp/gestor-escuela-ci.dump
+          source_revision="$(psql postgresql://gestor:gestor@localhost:5432/gestor_escuela -Atqc 'SELECT version_num FROM alembic_version')"
+          restored_revision="$(psql postgresql://gestor:gestor@localhost:5432/gestor_restore_check -Atqc 'SELECT version_num FROM alembic_version')"
+          source_tables="$(psql postgresql://gestor:gestor@localhost:5432/gestor_escuela -Atqc "SELECT count(*) FROM pg_tables WHERE schemaname = 'public'")"
+          restored_tables="$(psql postgresql://gestor:gestor@localhost:5432/gestor_restore_check -Atqc "SELECT count(*) FROM pg_tables WHERE schemaname = 'public'")"
+          test "$source_revision" = "$restored_revision"
+          test "$source_tables" = "$restored_tables"
 
       - name: Tests
         run: python -m pytest -m "not e2e"
