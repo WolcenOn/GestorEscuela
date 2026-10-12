@@ -20,7 +20,11 @@ from gestor_escuela.solver.group_support import (
 )
 from gestor_escuela.solver.support_preferences import add_extraction_preferences
 from gestor_escuela.solver.weekly_resources import TravelRule, WeeklyResources
-from gestor_escuela.solver.weekly_rooms import RoomSpec, WeeklyRooms
+from gestor_escuela.solver.weekly_rooms import (
+    RoomSpec,
+    WeeklyRooms,
+    allocate_candidate_room,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,6 +72,7 @@ class SupportDemand:
     max_sessions_per_day: int = 2
     location_id: str | None = None
     room_id: str | None = None
+    room_candidates: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,6 +84,7 @@ class PlacedSupport:
     weekday: int
     start: int
     end: int
+    room_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,7 +138,10 @@ def solve_weekly_timetable(
         tuple[str, str, int], list[tuple[cp_model.IntVar, int, cp_model.IntVar]]
     ] = defaultdict(list)
     support_choices: list[
-        tuple[SupportDemand, int, cp_model.IntVar, dict[int, cp_model.IntVar]]
+        tuple[
+            SupportDemand, int, cp_model.IntVar,
+            dict[int, cp_model.IntVar], dict[str, cp_model.IntVar],
+        ]
     ] = []
 
     for index, demand in enumerate(demands):
@@ -220,10 +229,11 @@ def solve_weekly_timetable(
                 intervals[("pupil", support.pupil_token, weekday)].append(interval)
                 if support.room_id:
                     rooms.reserve(support.room_id, weekday, interval)
-                resources.add_teacher(
-                    support.teacher_id, weekday, start_var, duration // 15,
-                    present, support.location_id,
-                )
+                if not support.room_candidates:
+                    resources.add_teacher(
+                        support.teacher_id, weekday, start_var, duration // 15,
+                        present, support.location_id,
+                    )
                 daily_demands[(len(demands) + index, weekday)].append(present)
                 for subject in support.blocked_subjects:
                     for class_interval in class_intervals.get(
@@ -239,7 +249,15 @@ def solve_weekly_timetable(
                 )
                 by_day[weekday] = present
             model.add_exactly_one(by_day.values())
-            support_choices.append((support, duration, start_var, by_day))
+            chosen = (
+                allocate_candidate_room(
+                    model, rooms, resources, support.teacher_id,
+                    by_day, start_var, duration // 15,
+                    support.room_candidates, 1, f"single_{index}_{session_index}",
+                )
+                if support.room_candidates else {}
+            )
+            support_choices.append((support, duration, start_var, by_day, chosen))
             soft_terms.append(start_var - start // 15)
         for weekday in support.allowed_days:
             model.add(
@@ -284,6 +302,13 @@ def solve_weekly_timetable(
             model.add_no_overlap(entries)
 
     resources.constrain_travel(model, travel_minutes, travel_rules)
+    known_rooms = {item.room_id for item in room_specs}
+    for demand in (*supports, *group_supports):
+        if demand.room_candidates and (
+            demand.room_id or demand.location_id
+            or any(candidate not in known_rooms for candidate in demand.room_candidates)
+        ):
+            raise ValueError("La selección automática requiere salas configuradas sin aula fija.")
     rooms.constrain(model, room_specs, start, end)
 
     if soft_terms:
@@ -317,13 +342,18 @@ def solve_weekly_timetable(
         ))
     lessons.sort(key=lambda item: (item.weekday, item.start, item.group_id, item.subject_id))
     placed_support = []
-    for support, duration, start_var, days in support_choices:
+    for support, duration, start_var, days, chosen in support_choices:
         weekday = next(day for day, present in days.items() if solver.value(present))
         start_minute = solver.value(start_var) * 15
+        room_id = next(
+            (room for room, selected in chosen.items() if solver.value(selected)),
+            support.room_id,
+        )
         placed_support.append(
             PlacedSupport(
                 support.request_id, support.service, support.teacher_id,
                 support.pupil_token, weekday, start_minute, start_minute + duration,
+                room_id,
             )
         )
     placed_support.sort(key=lambda item: (item.weekday, item.start, item.request_id))
