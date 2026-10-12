@@ -11,6 +11,7 @@ from sqlalchemy.pool import StaticPool
 from gestor_escuela.persistence.db import Base, get_session
 from gestor_escuela.solver.group_support import GroupParticipant, GroupSupportDemand
 from gestor_escuela.solver.weekly_diagnostics import explain_weekly_infeasible
+from gestor_escuela.solver.weekly_resources import TravelRule
 from gestor_escuela.solver.weekly_timetable import (
     BusyInterval,
     LessonDemand,
@@ -646,3 +647,94 @@ def test_api_rejects_invalid_travel_and_accepts_room_only_blocks(client: TestCli
     assert valid.status_code == 200
     assert valid.json()["preview_only"] is True
     assert client.get(f"/schools/{school_id}/day-plans").json() == []
+
+
+def test_directional_route_uses_its_own_minutes_not_reverse_or_default() -> None:
+    lessons = (
+        LessonDemand(
+            "1A", "MAT", "ITINERANT", 45, (45,),
+            allowed_days=(0,), earliest_start=540, latest_end=585,
+            location_id="building-A",
+        ),
+        LessonDemand(
+            "1B", "MAT", "ITINERANT", 45, (45,),
+            allowed_days=(0,), earliest_start=585, latest_end=645,
+            location_id="building-B",
+        ),
+    )
+    # Forced order: A at 09:00; B at 09:45 or 10:00.
+    short_outbound = solve_weekly_timetable(
+        lessons, (), 540, 645, travel_minutes=30,
+        travel_rules=(TravelRule("building-A", "building-B", 15),),
+    )
+    assert short_outbound.status == "feasible"
+    assert short_outbound.lessons[1].start == 600
+
+    long_outbound = solve_weekly_timetable(
+        lessons, (), 540, 645, travel_minutes=0,
+        travel_rules=(TravelRule("building-A", "building-B", 60),),
+    )
+    assert long_outbound.status == "infeasible"
+
+    only_reverse_rule = solve_weekly_timetable(
+        lessons, (), 540, 645, travel_minutes=0,
+        travel_rules=(TravelRule("building-B", "building-A", 60),),
+    )
+    assert only_reverse_rule.status == "feasible"
+    assert only_reverse_rule.lessons[1].start == 585
+
+
+def test_route_gap_is_enforced_across_fixed_and_proposed_support() -> None:
+    lesson = LessonDemand("1A", "MAT", "T", 45, (45,), allowed_days=(0,))
+    support = SupportDemand(
+        "need", "PT", "ITINERANT", "anonymous-1", "1A", 45, (45,),
+        allowed_days=(0,), location_id="support-room-2",
+    )
+    fixed = BusyInterval(
+        0, 540, 585, teacher_id="ITINERANT", location_id="building-1"
+    )
+    blocked = solve_weekly_timetable(
+        (lesson,), (fixed,), 540, 630, supports=(support,),
+        travel_rules=(TravelRule("building-1", "support-room-2", 15),),
+    )
+    assert blocked.status == "infeasible"
+    possible = solve_weekly_timetable(
+        (lesson,), (fixed,), 540, 645, supports=(support,),
+        travel_rules=(TravelRule("building-1", "support-room-2", 15),),
+    )
+    assert possible.status == "feasible"
+    assert possible.supports[0].start == 600
+
+
+def test_api_rejects_same_location_duplicate_route_and_bad_quantization(
+    client: TestClient,
+) -> None:
+    school_id = client.post("/schools", json={"name": "CEIP Rutas"}).json()["id"]
+    payload = _payload()
+    payload["travel_rules"] = [{
+        "from_location_id": "A",
+        "to_location_id": "A",
+        "minutes": 15,
+    }]
+    invalid = client.post(
+        f"/schools/{school_id}/weekly-timetable/preview", json=payload
+    )
+    assert invalid.status_code == 422
+    payload["travel_rules"][0]["to_location_id"] = "B"
+    payload["travel_rules"][0]["minutes"] = 20
+    invalid = client.post(
+        f"/schools/{school_id}/weekly-timetable/preview", json=payload
+    )
+    assert invalid.status_code == 422
+    payload["travel_rules"][0]["minutes"] = 15
+    payload["travel_rules"].append(dict(payload["travel_rules"][0]))
+    invalid = client.post(
+        f"/schools/{school_id}/weekly-timetable/preview", json=payload
+    )
+    assert invalid.status_code == 422
+    payload["travel_rules"].pop()
+    result = client.post(
+        f"/schools/{school_id}/weekly-timetable/preview", json=payload
+    )
+    assert result.status_code == 200
+    assert result.json()["preview_only"] is True
