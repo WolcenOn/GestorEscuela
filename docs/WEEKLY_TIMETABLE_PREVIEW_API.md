@@ -229,8 +229,10 @@ informativa y no modifica configuración académica ni base de datos.
    ya configurados cuando cumplen las condiciones del piloto. Cuando se omiten
    necesidades incompatibles se debe avisar.
 3. **No** resuelve la planificación de actividades del centro que aún no
-   tienen franja concreta, ni recursos compartidos, desplazamientos o
-   reuniones/funciones sin asignación temporal. El frontend sí puede enviar
+   tienen franja concreta, ni rutas físicas entre edificios, asignación
+   automática de espacios o reuniones/funciones sin asignación temporal.
+   **Sí** impone exclusividad de salas indicadas explícitamente y un margen
+   opcional de traslado entre ubicaciones conocidas. El frontend puede enviar
    bloqueos de actividades *ya programadas*.
 4. **No** aplica cambios a los horarios actuales. Los resultados permanecen
    como texto informativo en la vista Cuenta y sincronización.
