@@ -244,7 +244,10 @@ class WeeklyPreviewInput(BaseModel):
         if len({room.room_id for room in self.rooms}) != len(self.rooms):
             raise ValueError("No se puede repetir una sala configurada")
         defined_rooms = {room.room_id for room in self.rooms}
-        for need in [*self.supports, *self.group_supports]:
+        needs: list[SupportDemandInput | GroupSupportInput] = [
+            *self.supports, *self.group_supports,
+        ]
+        for need in needs:
             if len(set(need.room_candidates)) != len(need.room_candidates):
                 raise ValueError("Las salas candidatas de un apoyo no pueden repetirse")
             if need.room_candidates and (
