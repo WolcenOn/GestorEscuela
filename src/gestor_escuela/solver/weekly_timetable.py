@@ -34,6 +34,32 @@ class BusyInterval:
     end: int
     teacher_id: str | None = None
     group_id: str | None = None
+    pupil_token: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SupportDemand:
+    request_id: str
+    service: str
+    teacher_id: str
+    pupil_token: str
+    group_id: str
+    weekly_minutes: int
+    durations: tuple[int, ...]
+    blocked_subjects: tuple[str, ...] = ()
+    allowed_days: tuple[int, ...] = (0, 1, 2, 3, 4)
+    max_sessions_per_day: int = 2
+
+
+@dataclass(frozen=True, slots=True)
+class PlacedSupport:
+    request_id: str
+    service: str
+    teacher_id: str
+    pupil_token: str
+    weekday: int
+    start: int
+    end: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +79,7 @@ class TimetablePreview:
     solver_status: str = ""
     wall_time_seconds: float = 0.0
     reasons: tuple[str, ...] = ()
+    supports: tuple[PlacedSupport, ...] = ()
 
 
 def solve_weekly_timetable(
@@ -61,6 +88,7 @@ def solve_weekly_timetable(
     start: int,
     end: int,
     max_time_seconds: float = 5.0,
+    supports: tuple[SupportDemand, ...] = (),
 ) -> TimetablePreview:
     """Place explicit durations exactly; never invent a remainder or miss minutes."""
     if start >= end or any(value % 15 for value in (start, end)):
@@ -73,6 +101,10 @@ def solve_weekly_timetable(
     daily_demands: dict[tuple[int, int], list[cp_model.IntVar]] = defaultdict(list)
     decisions: list[tuple[LessonDemand, int, cp_model.IntVar, dict[int, cp_model.IntVar]]] = []
     soft_terms: list[cp_model.LinearExpr] = []
+    class_intervals: dict[tuple[str, str, int], list[cp_model.IntervalVar]] = defaultdict(list)
+    support_choices: list[
+        tuple[SupportDemand, int, cp_model.IntVar, dict[int, cp_model.IntVar]]
+    ] = []
 
     for index, demand in enumerate(demands):
         if sum(demand.durations) != demand.weekly_minutes:
@@ -106,6 +138,7 @@ def solve_weekly_timetable(
                 )
                 intervals[("teacher", demand.teacher_id, weekday)].append(interval)
                 intervals[("group", demand.group_id, weekday)].append(interval)
+                class_intervals[(demand.group_id, demand.subject_id, weekday)].append(interval)
                 daily_demands[(index, weekday)].append(present)
                 days[weekday] = present
                 if demand.preferred_days and weekday not in demand.preferred_days:
@@ -117,6 +150,49 @@ def solve_weekly_timetable(
     for index, demand in enumerate(demands):
         for weekday in demand.allowed_days:
             model.add(sum(daily_demands[(index, weekday)]) <= demand.max_sessions_per_day)
+
+    # PT/AL groups may extract one pupil during ordinary class instruction.
+    # Only lessons for which extraction is forbidden block that pupil's support.
+    # Every pupil token and professional gets a global no-overlap timeline.
+    for index, support in enumerate(supports):
+        if sum(support.durations) != support.weekly_minutes:
+            raise ValueError(f"Apoyo {index}: los minutos no coinciden con el objetivo.")
+        if not support.allowed_days:
+            raise ValueError(f"Apoyo {index}: debe admitir al menos un día.")
+        for session_index, duration in enumerate(support.durations):
+            if not 15 <= duration <= 180 or duration % 15:
+                raise ValueError("Los apoyos deben tener duración de 15–180 min.")
+            if duration > end - start:
+                return TimetablePreview(
+                    "infeasible",
+                    reasons=(f"Apoyo {index}: sesión de {duration} min fuera de jornada.",),
+                )
+            start_var = model.new_int_var(
+                start // 15, (end - duration) // 15,
+                f"support_start_{index}_{session_index}",
+            )
+            by_day: dict[int, cp_model.IntVar] = {}
+            for weekday in support.allowed_days:
+                present = model.new_bool_var(f"support_day_{index}_{session_index}_{weekday}")
+                interval = model.new_optional_fixed_size_interval_var(
+                    start_var, duration // 15, present,
+                    f"support_{index}_{session_index}_{weekday}",
+                )
+                intervals[("teacher", support.teacher_id, weekday)].append(interval)
+                intervals[("pupil", support.pupil_token, weekday)].append(interval)
+                daily_demands[(len(demands) + index, weekday)].append(present)
+                for subject in support.blocked_subjects:
+                    for class_interval in class_intervals.get((support.group_id, subject, weekday), ()):
+                        model.add_no_overlap([interval, class_interval])
+                by_day[weekday] = present
+            model.add_exactly_one(by_day.values())
+            support_choices.append((support, duration, start_var, by_day))
+            soft_terms.append(start_var - start // 15)
+        for weekday in support.allowed_days:
+            model.add(
+                sum(daily_demands[(len(demands) + index, weekday)])
+                <= support.max_sessions_per_day
+            )
 
     for index, block in enumerate(busy):
         if block.start >= block.end:
@@ -130,6 +206,8 @@ def solve_weekly_timetable(
             intervals[("teacher", block.teacher_id, block.weekday)].append(fixed)
         if block.group_id:
             intervals[("group", block.group_id, block.weekday)].append(fixed)
+        if block.pupil_token:
+            intervals[("pupil", block.pupil_token, block.weekday)].append(fixed)
 
     for entries in intervals.values():
         if len(entries) > 1:
@@ -165,4 +243,18 @@ def solve_weekly_timetable(
             weekday, start_minute, start_minute + duration,
         ))
     lessons.sort(key=lambda item: (item.weekday, item.start, item.group_id, item.subject_id))
-    return TimetablePreview("feasible", tuple(lessons), name, solver.wall_time)
+    placed_support = []
+    for support, duration, start_var, days in support_choices:
+        weekday = next(day for day, present in days.items() if solver.value(present))
+        start_minute = solver.value(start_var) * 15
+        placed_support.append(
+            PlacedSupport(
+                support.request_id, support.service, support.teacher_id,
+                support.pupil_token, weekday, start_minute, start_minute + duration,
+            )
+        )
+    placed_support.sort(key=lambda item: (item.weekday, item.start, item.request_id))
+    return TimetablePreview(
+        "feasible", tuple(lessons), name, solver.wall_time,
+        supports=tuple(placed_support),
+    )
