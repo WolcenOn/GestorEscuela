@@ -20,6 +20,7 @@ from gestor_escuela.solver.group_support import (
 )
 from gestor_escuela.solver.support_preferences import add_extraction_preferences
 from gestor_escuela.solver.weekly_resources import TravelRule, WeeklyResources
+from gestor_escuela.solver.weekly_rooms import RoomSpec, WeeklyRooms
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +49,7 @@ class BusyInterval:
     pupil_token: str | None = None
     location_id: str | None = None
     room_id: str | None = None
+    room_units: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,6 +112,7 @@ def solve_weekly_timetable(
     group_supports: tuple[GroupSupportDemand, ...] = (),
     travel_minutes: int = 0,
     travel_rules: tuple[TravelRule, ...] = (),
+    room_specs: tuple[RoomSpec, ...] = (),
 ) -> TimetablePreview:
     """Place explicit durations exactly; never invent a remainder or miss minutes."""
     if start >= end or any(value % 15 for value in (start, end)):
@@ -119,6 +122,7 @@ def solve_weekly_timetable(
 
     model = cp_model.CpModel()
     resources = WeeklyResources()
+    rooms = WeeklyRooms()
     intervals: dict[tuple[str, str, int], list[cp_model.IntervalVar]] = defaultdict(list)
     daily_demands: dict[tuple[int, int], list[cp_model.IntVar]] = defaultdict(list)
     decisions: list[tuple[LessonDemand, int, cp_model.IntVar, dict[int, cp_model.IntVar]]] = []
@@ -164,7 +168,7 @@ def solve_weekly_timetable(
                 intervals[("teacher", demand.teacher_id, weekday)].append(interval)
                 intervals[("group", demand.group_id, weekday)].append(interval)
                 if demand.room_id:
-                    intervals[("room", demand.room_id, weekday)].append(interval)
+                    rooms.reserve(demand.room_id, weekday, interval, exclusive=True)
                 resources.add_teacher(
                     demand.teacher_id, weekday, start_var, duration_ticks,
                     present, demand.location_id,
@@ -215,7 +219,7 @@ def solve_weekly_timetable(
                 intervals[("teacher", support.teacher_id, weekday)].append(interval)
                 intervals[("pupil", support.pupil_token, weekday)].append(interval)
                 if support.room_id:
-                    intervals[("room", support.room_id, weekday)].append(interval)
+                    rooms.reserve(support.room_id, weekday, interval)
                 resources.add_teacher(
                     support.teacher_id, weekday, start_var, duration // 15,
                     present, support.location_id,
@@ -246,7 +250,7 @@ def solve_weekly_timetable(
     grouped = add_group_supports(
         model, group_supports, intervals, class_intervals,
         class_events, soft_terms, start, end,
-        resources,
+        resources, rooms,
     )
 
     for index, block in enumerate(busy):
@@ -265,7 +269,11 @@ def solve_weekly_timetable(
                 None, block.location_id,
             )
         if block.room_id:
-            intervals[("room", block.room_id, block.weekday)].append(fixed)
+            rooms.reserve(
+                block.room_id, block.weekday, fixed,
+                persons=block.room_units or 1,
+                exclusive=block.room_units is None,
+            )
         if block.group_id:
             intervals[("group", block.group_id, block.weekday)].append(fixed)
         if block.pupil_token:
@@ -276,6 +284,7 @@ def solve_weekly_timetable(
             model.add_no_overlap(entries)
 
     resources.constrain_travel(model, travel_minutes, travel_rules)
+    rooms.constrain(model, room_specs, start, end)
 
     if soft_terms:
         model.minimize(sum(soft_terms))
