@@ -285,7 +285,8 @@ def solve_weekly_timetable(
                     by_day, start_var, duration // 15,
                     tuple(
                         room_id for room_id in support.room_candidates
-                        if set(support.required_features).issubset(
+                        if room_id in room_catalog
+                        and set(support.required_features).issubset(
                             room_catalog[room_id].features
                         )
                     ),
