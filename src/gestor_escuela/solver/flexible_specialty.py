@@ -9,7 +9,12 @@ from gestor_escuela.domain.models import (
     CandidateStatus,
     Teacher,
 )
-from gestor_escuela.solver.optimizer import SchoolDayOptimizer, _Candidate, _Need
+from gestor_escuela.solver.optimizer import (
+    SchoolDayOptimizer,
+    _Candidate,
+    _Need,
+    _overlapping_slots,
+)
 
 
 class FlexibleSpecialtySchoolDayOptimizer(SchoolDayOptimizer):
@@ -29,6 +34,7 @@ class FlexibleSpecialtySchoolDayOptimizer(SchoolDayOptimizer):
         teachers: tuple[Teacher, ...],
         activities_by_teacher_slot: dict[tuple[str, str], Activity],
         absent_slots: set[tuple[str, str]],
+        slot_conflicts: dict[str, frozenset[str]],
     ) -> tuple[tuple[_Candidate, ...], tuple[CandidateAssessment, ...]]:
         candidates: list[_Candidate] = []
         assessments: list[CandidateAssessment] = []
@@ -50,7 +56,10 @@ class FlexibleSpecialtySchoolDayOptimizer(SchoolDayOptimizer):
                     )
                 )
                 continue
-            if (teacher.id, need.activity.slot_id) in absent_slots:
+            if any(
+                (teacher.id, slot_id) in absent_slots
+                for slot_id in _overlapping_slots(need.activity.slot_id, slot_conflicts)
+            ):
                 assessments.append(
                     CandidateAssessment(
                         activity_id=need.activity.id,
@@ -98,7 +107,14 @@ class FlexibleSpecialtySchoolDayOptimizer(SchoolDayOptimizer):
                 )
                 continue
 
-            current = activities_by_teacher_slot.get((teacher.id, need.activity.slot_id))
+            current = next(
+                (
+                    activities_by_teacher_slot[(teacher.id, slot_id)]
+                    for slot_id in sorted(_overlapping_slots(need.activity.slot_id, slot_conflicts))
+                    if (teacher.id, slot_id) in activities_by_teacher_slot
+                ),
+                None,
+            )
             if current and not self._can_displace(current):
                 assessments.append(
                     CandidateAssessment(
