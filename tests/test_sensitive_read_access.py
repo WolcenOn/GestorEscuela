@@ -89,7 +89,9 @@ def test_viewer_cannot_download_raw_pupil_roster_or_scenario_snapshot(
                 "groups": [{"id": "4A", "label": "4A", "stage": "Primaria"}],
                 "subjects": [],
                 "time_slots": [{"id": "S1", "label": "09:00", "order": 1}],
-                "teachers": [],
+                "teachers": [
+                    {"id": "T01", "display_name": "Docente Prueba", "profile": "TUTOR"}
+                ],
                 "activities": [],
             },
         )
