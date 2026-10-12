@@ -871,3 +871,112 @@ def test_preview_api_validates_room_capacity_and_weekday_windows(client: TestCli
     response = client.post(uri, json=payload)
     assert response.status_code == 200
     assert response.json()["preview_only"] is True
+
+
+def test_auto_room_assignment_avoids_full_room_and_preserves_legacy_fixed() -> None:
+    lesson = LessonDemand("1A", "MAT", "CLASS", 45, (45,), allowed_days=(0,))
+    need = SupportDemand(
+        "s", "PT", "PT-T", "private-p", "1A", 45, (45,),
+        allowed_days=(0,), room_candidates=("ROOM-A", "ROOM-B"),
+    )
+    occupied = (BusyInterval(0, 540, 585, room_id="ROOM-A"),)
+    result = solve_weekly_timetable(
+        (lesson,), occupied, 540, 585, supports=(need,),
+        room_specs=(RoomSpec("ROOM-A", 1), RoomSpec("ROOM-B", 1)),
+    )
+    assert result.status == "feasible"
+    assert result.supports[0].room_id == "ROOM-B"
+    assert result.supports[0].start == 540
+
+
+def test_auto_room_choice_checks_open_hours_and_teacher_travel() -> None:
+    lesson = LessonDemand("1A", "MAT", "CLASS", 45, (45,), allowed_days=(0,))
+    need = SupportDemand(
+        "s", "PT", "ITINERANT", "private-p", "1A", 45, (45,),
+        allowed_days=(0,), room_candidates=("ROOM-A", "ROOM-B"),
+    )
+    occupied = (
+        BusyInterval(
+            0, 540, 585, teacher_id="ITINERANT", room_id="ROOM-A",
+            location_id="room:ROOM-A",
+        ),
+    )
+    specs = (
+        RoomSpec("ROOM-A", 1, (RoomWindow(0, 585, 630),)),
+        RoomSpec("ROOM-B", 1, (RoomWindow(0, 585, 630),)),
+    )
+    result = solve_weekly_timetable(
+        (lesson,), occupied, 540, 630, supports=(need,),
+        room_specs=specs, travel_minutes=15,
+    )
+    assert result.status == "feasible"
+    assert result.supports[0].room_id == "ROOM-A"
+    assert result.supports[0].start == 585
+    only_other_room = solve_weekly_timetable(
+        (lesson,), occupied, 540, 630, supports=(need,),
+        room_specs=(
+            RoomSpec("ROOM-A", 1, (RoomWindow(0, 540, 585),)),
+            RoomSpec("ROOM-B", 1, (RoomWindow(0, 585, 630),)),
+        ),
+        travel_minutes=15,
+    )
+    assert only_other_room.status == "infeasible"
+
+
+def test_auto_room_group_can_choose_different_rooms_for_sessions() -> None:
+    lesson = LessonDemand("1A", "MAT", "CLASS", 45, (45,), allowed_days=(0,))
+    group = GroupSupportDemand(
+        "g", "PT", "T-PT", 45,
+        (
+            GroupParticipant("p1", "1A", 90),
+            GroupParticipant("p2", "1A", 45),
+        ),
+        allowed_days=(0,),
+        room_candidates=("SMALL", "LARGE"),
+    )
+    specs = (
+        RoomSpec("SMALL", 1, (RoomWindow(0, 540, 630),)),
+        RoomSpec("LARGE", 2, (RoomWindow(0, 540, 585),)),
+    )
+    result = solve_weekly_timetable(
+        (lesson,), (), 540, 630, group_supports=(group,),
+        room_specs=specs,
+    )
+    assert result.status == "feasible"
+    assert len(result.group_supports) == 2
+    actual = {item.room_id: len(item.participant_tokens) for item in result.group_supports}
+    assert actual == {"LARGE": 2, "SMALL": 1}
+    assert sum(len(item.participant_tokens) for item in result.group_supports) == 3
+
+
+def test_api_room_candidates_require_known_rooms_and_no_fixed_assignment(
+    client: TestClient,
+) -> None:
+    school_id = client.post("/schools", json={"name": "CEIP Salas Optativas"}).json()["id"]
+    uri = f"/schools/{school_id}/weekly-timetable/preview"
+    payload = _payload()
+    payload["supports"] = [{
+        "request_id": "support", "service": "PT", "teacher_id": "T-PT",
+        "pupil_token": "private-token", "group_id": "1A",
+        "weekly_minutes": 45, "durations": [45],
+        "room_candidates": ["ROOM-A", "ROOM-B"],
+    }]
+    assert client.post(uri, json=payload).status_code == 422
+    payload["rooms"] = [
+        {"room_id": "ROOM-A", "capacity": 1},
+        {"room_id": "ROOM-B", "capacity": 2},
+    ]
+    payload["supports"][0]["room_id"] = "ROOM-A"
+    assert client.post(uri, json=payload).status_code == 422
+    payload["supports"][0].pop("room_id")
+    payload["supports"][0]["room_candidates"].append("ROOM-A")
+    assert client.post(uri, json=payload).status_code == 422
+    payload["supports"][0]["room_candidates"].pop()
+    response = client.post(uri, json=payload)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["preview_only"] is True
+    assert data["status"] == "feasible"
+    assert data["supports"][0]["room_id"] in {"ROOM-A", "ROOM-B"}
+    assert "private-token" not in str(data)
+    assert client.get(f"/schools/{school_id}/day-plans").json() == []
