@@ -235,7 +235,9 @@ def get_planning_scenario_snapshot(
     academic_year_id: UUID,
     scenario_id: UUID,
     session: SessionDep,
-    _actor: ViewerDep,
+    # The raw snapshot can include identifiable students and sensitive support notes.
+    # VIEWER needs a separate explicitly redacted read model, not this full payload.
+    _actor: PlannerDep,
 ) -> PlanningScenarioSnapshotRow:
     _require_school(school_id, session)
     _require_academic_year(school_id, academic_year_id, session)
