@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from gestor_escuela.persistence.db import Base, get_session
+from gestor_escuela.solver.group_support import GroupParticipant, GroupSupportDemand
 from gestor_escuela.solver.weekly_timetable import (
     BusyInterval,
     LessonDemand,
@@ -262,4 +263,165 @@ def test_api_rejects_unlinked_support_and_incorrect_minutes(client: TestClient) 
     assert response.status_code == 422
     payload["supports"][0]["durations"] = [45]
     response = client.post(f"/schools/{school_id}/weekly-timetable/preview", json=payload)
+    assert response.status_code == 422
+
+
+def test_shared_pt_group_counts_exact_minutes_for_two_different_goals() -> None:
+    lesson = LessonDemand("1A", "MAT", "MATH", 45, (45,), allowed_days=(0,))
+    group = GroupSupportDemand(
+        "group-1", "PT", "PRO-PT", 45,
+        (
+            GroupParticipant("opaque-90", "1A", 90),
+            GroupParticipant("opaque-45", "1A", 45),
+        ),
+        allowed_days=(0,),
+    )
+    result = solve_weekly_timetable(
+        (lesson,), (), 540, 720, group_supports=(group,),
+    )
+    assert result.status == "feasible"
+    assert len(result.group_supports) == 2
+    minutes = {"opaque-90": 0, "opaque-45": 0}
+    for session in result.group_supports:
+        assert session.end - session.start == 45
+        for token in session.participant_tokens:
+            minutes[token] += 45
+    assert minutes == {"opaque-90": 90, "opaque-45": 45}
+    assert sorted(len(item.participant_tokens) for item in result.group_supports) == [1, 2]
+    assert all(item.weekday == 0 for item in result.group_supports)
+
+
+def test_grouped_and_individual_pt_al_never_overlap_same_pupil() -> None:
+    lesson = LessonDemand("1A", "MAT", "MAT-T", 45, (45,), allowed_days=(0,))
+    group = GroupSupportDemand(
+        "group-pt", "PT", "T-PT", 45,
+        (GroupParticipant("pupil-token", "1A", 45),),
+        allowed_days=(0,),
+    )
+    individual = SupportDemand(
+        "individual-al", "AL", "T-AL", "pupil-token", "1A", 45, (45,),
+        allowed_days=(0,),
+    )
+    result = solve_weekly_timetable(
+        (lesson,), (), 540, 630, supports=(individual,),
+        group_supports=(group,),
+    )
+    assert result.status == "feasible"
+    a = result.group_supports[0]
+    b = result.supports[0]
+    assert a.end <= b.start or b.end <= a.start
+
+
+def test_blocked_subject_prevents_group_pupil_extraction() -> None:
+    lesson = LessonDemand("1A", "MAT", "MAT-T", 90, (90,), allowed_days=(0,))
+    group = GroupSupportDemand(
+        "group-pt", "PT", "T-PT", 45,
+        (
+            GroupParticipant("student-a", "1A", 45, blocked_subjects=("MAT",)),
+            GroupParticipant("student-b", "1A", 45),
+        ),
+        allowed_days=(0,),
+    )
+    result = solve_weekly_timetable(
+        (lesson,), (), 540, 630, group_supports=(group,),
+    )
+    assert result.status == "infeasible"
+
+
+def test_avoided_extraction_is_soft_not_forbidden_for_group() -> None:
+    lesson = LessonDemand("1A", "MAT", "MAT-T", 90, (90,), allowed_days=(0,))
+    avoided = GroupSupportDemand(
+        "group-pt", "PT", "T-PT", 45,
+        (GroupParticipant("student-a", "1A", 45, avoided_subjects=("MAT",)),),
+        allowed_days=(0,),
+    )
+    result = solve_weekly_timetable(
+        (lesson,), (), 540, 630, group_supports=(avoided,),
+    )
+    assert result.status == "feasible"
+    assert len(result.group_supports) == 1
+
+
+def test_avoided_extraction_chooses_non_overlapping_time_when_possible() -> None:
+    lesson = LessonDemand("1A", "MAT", "MAT-T", 45, (45,), allowed_days=(0,))
+    avoided = GroupSupportDemand(
+        "group-pt", "PT", "T-PT", 45,
+        (GroupParticipant("student-a", "1A", 45, avoided_subjects=("MAT",)),),
+        allowed_days=(0,),
+    )
+    result = solve_weekly_timetable(
+        (lesson,), (), 540, 630, group_supports=(avoided,),
+    )
+    assert result.status == "feasible"
+    class_block = result.lessons[0]
+    support_block = result.group_supports[0]
+    assert class_block.end <= support_block.start or support_block.end <= class_block.start
+
+
+def test_api_group_support_returns_counts_but_never_student_tokens(client: TestClient) -> None:
+    school_id = client.post("/schools", json={"name": "CEIP Grupo PT"}).json()["id"]
+    payload = _payload()
+    payload["group_supports"] = [{
+        "request_id": "group-1",
+        "service": "PT",
+        "teacher_id": "T-PT",
+        "session_minutes": 45,
+        "participants": [
+            {"pupil_token": "opaque-90", "group_id": "1A", "weekly_minutes": 90},
+            {"pupil_token": "opaque-45", "group_id": "1A", "weekly_minutes": 45},
+        ],
+    }]
+    response = client.post(
+        f"/schools/{school_id}/weekly-timetable/preview", json=payload,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "feasible"
+    assert data["preview_only"] is True
+    assert sorted(row["participant_count"] for row in data["group_supports"]) == [1, 2]
+    assert "opaque-90" not in str(data)
+    assert "opaque-45" not in str(data)
+    assert client.get(f"/schools/{school_id}/day-plans").json() == []
+
+
+def test_api_group_support_rejects_excess_pupil_minutes(client: TestClient) -> None:
+    school_id = client.post("/schools", json={"name": "CEIP Objetivos"}).json()["id"]
+    payload = _payload()
+    payload["group_supports"] = [{
+        "request_id": "group-1",
+        "service": "AL",
+        "teacher_id": "T-AL",
+        "session_minutes": 45,
+        "participants": [
+            {"pupil_token": "one", "group_id": "1A", "weekly_minutes": 60},
+        ],
+    }]
+    response = client.post(
+        f"/schools/{school_id}/weekly-timetable/preview", json=payload,
+    )
+    assert response.status_code == 422
+
+
+def test_api_refuses_duplicate_pupil_goals_in_multiple_groups(client: TestClient) -> None:
+    school_id = client.post("/schools", json={"name": "CEIP Duplicados"}).json()["id"]
+    payload = _payload()
+    payload["group_supports"] = [
+        {
+            "request_id": "first", "service": "PT", "teacher_id": "PT-1",
+            "session_minutes": 45,
+            "participants": [{
+                "pupil_token": "shared", "group_id": "1A", "weekly_minutes": 45,
+            }],
+        },
+        {
+            "request_id": "second", "service": "PT", "teacher_id": "PT-2",
+            "session_minutes": 45,
+            "participants": [{
+                "pupil_token": "shared", "group_id": "1A", "weekly_minutes": 45,
+            }],
+        },
+    ]
+    response = client.post(
+        f"/schools/{school_id}/weekly-timetable/preview", json=payload,
+    )
     assert response.status_code == 422
