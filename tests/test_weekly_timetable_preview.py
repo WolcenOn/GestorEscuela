@@ -981,3 +981,107 @@ def test_api_room_candidates_require_known_rooms_and_no_fixed_assignment(
     assert data["supports"][0]["room_id"] in {"ROOM-A", "ROOM-B"}
     assert "private-token" not in str(data)
     assert client.get(f"/schools/{school_id}/day-plans").json() == []
+
+
+def test_room_equipment_requirement_excludes_incompatible_candidate() -> None:
+    lesson = LessonDemand("1A", "MAT", "CLASS", 45, (45,), allowed_days=(0,))
+    support = SupportDemand(
+        "s", "AL", "AL-T", "anonymous-p", "1A", 45, (45,),
+        allowed_days=(0,), room_candidates=("NO-EQUIP", "SPEECH"),
+        required_features=("material_logopedico", "aislamiento_acustico"),
+    )
+    specs = (
+        RoomSpec("NO-EQUIP", 2),
+        RoomSpec("SPEECH", 2, features=("material_logopedico", "aislamiento_acustico")),
+    )
+    feasible = solve_weekly_timetable(
+        (lesson,), (), 540, 585, supports=(support,), room_specs=specs,
+    )
+    assert feasible.status == "feasible"
+    assert feasible.supports[0].room_id == "SPEECH"
+    missing = solve_weekly_timetable(
+        (lesson,), (), 540, 585, supports=(support,),
+        room_specs=(RoomSpec("NO-EQUIP", 2), RoomSpec("SPEECH", 2)),
+    )
+    assert missing.status == "infeasible"
+    assert any("equipamiento requerido" in reason for reason in missing.reasons)
+
+
+def test_group_support_equipment_and_accessible_room_are_hard_constraints() -> None:
+    lesson = LessonDemand("1A", "MAT", "CLASS", 45, (45,), allowed_days=(0,))
+    group = GroupSupportDemand(
+        "group", "PT", "PT-T", 45,
+        (
+            GroupParticipant("anonymous-1", "1A", 45),
+            GroupParticipant("anonymous-2", "1A", 45),
+        ),
+        allowed_days=(0,), room_candidates=("ROOM-A", "ROOM-B"),
+        required_features=("acceso_sin_escalones", "mesa_regulable"),
+    )
+    specs = (
+        RoomSpec("ROOM-A", 2, features=("acceso_sin_escalones",)),
+        RoomSpec("ROOM-B", 2, features=("acceso_sin_escalones", "mesa_regulable")),
+    )
+    feasible = solve_weekly_timetable(
+        (lesson,), (), 540, 585, group_supports=(group,), room_specs=specs,
+    )
+    assert feasible.status == "feasible"
+    assert feasible.group_supports[0].room_id == "ROOM-B"
+    assert len(feasible.group_supports[0].participant_tokens) == 2
+    inadequate_capacity = solve_weekly_timetable(
+        (lesson,), (), 540, 585, group_supports=(group,),
+        room_specs=(
+            specs[0],
+            RoomSpec("ROOM-B", 1, features=specs[1].features),
+        ),
+    )
+    assert inadequate_capacity.status == "infeasible"
+
+
+def test_fixed_room_cannot_bypass_required_equipment() -> None:
+    lesson = LessonDemand("1A", "MAT", "CLASS", 45, (45,), allowed_days=(0,))
+    support = SupportDemand(
+        "al", "AL", "AL-T", "anonymous", "1A", 45, (45,),
+        allowed_days=(0,), room_id="FIXED",
+        required_features=("material_logopedico",),
+    )
+    result = solve_weekly_timetable(
+        (lesson,), (), 540, 585, supports=(support,),
+        room_specs=(RoomSpec("FIXED", 1),),
+    )
+    assert result.status == "infeasible"
+    assert "carece del equipamiento" in result.reasons[0]
+
+
+def test_api_uses_allowed_room_tags_without_pupil_health_information(
+    client: TestClient,
+) -> None:
+    school_id = client.post("/schools", json={"name": "CEIP Equipamiento"}).json()["id"]
+    uri = f"/schools/{school_id}/weekly-timetable/preview"
+    payload = _payload()
+    payload["supports"] = [{
+        "request_id": "al", "service": "AL", "teacher_id": "AL-T",
+        "pupil_token": "opaque-anonymous", "group_id": "1A",
+        "weekly_minutes": 45, "durations": [45],
+        "room_candidates": ["PLAIN", "SPEECH"],
+        "required_features": ["material_logopedico"],
+    }]
+    payload["rooms"] = [
+        {"room_id": "PLAIN", "capacity": 2, "features": []},
+        {"room_id": "SPEECH", "capacity": 2, "features": ["material_logopedico"]},
+    ]
+    response = client.post(uri, json=payload)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["preview_only"] is True
+    assert data["status"] == "feasible"
+    assert data["supports"][0]["room_id"] == "SPEECH"
+    assert "opaque-anonymous" not in str(data)
+
+    payload["supports"][0]["required_features"] = ["diagnostico_privado"]
+    assert client.post(uri, json=payload).status_code == 422
+    payload["supports"][0]["required_features"] = ["material_logopedico"]
+    payload["rooms"][1]["features"] = ["diagnostico_privado"]
+    assert client.post(uri, json=payload).status_code == 422
+    payload["rooms"][1]["features"] = ["material_logopedico", "material_logopedico"]
+    assert client.post(uri, json=payload).status_code == 422
