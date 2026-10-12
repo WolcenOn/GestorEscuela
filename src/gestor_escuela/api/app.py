@@ -45,6 +45,7 @@ from gestor_escuela.persistence.models import (
     SchoolTimeSlotRow,
 )
 from gestor_escuela.solver.optimizer import SchoolDayOptimizer
+from gestor_escuela.solver.slot_intervals import build_slot_conflicts
 
 app = FastAPI(title="GestorEscuela API", version="0.4.0")
 SessionDep = Annotated[Session, Depends(get_session)]
@@ -549,12 +550,19 @@ def solve_day_plan(
         for item in request.locked_substitutions
     )
     teachers, activities = _load_solver_inputs(school_id, plan.plan_date, session)
+    slots = session.scalars(
+        select(SchoolTimeSlotRow).where(SchoolTimeSlotRow.school_id == school_id)
+    ).all()
+    slot_conflicts = build_slot_conflicts(
+        (slot.external_id, slot.start_time, slot.end_time) for slot in slots
+    )
     try:
         solution = SchoolDayOptimizer().solve(
             teachers=teachers,
             activities=activities,
             absences=absences,
             locked_substitutions=locked,
+            slot_conflicts=slot_conflicts,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
