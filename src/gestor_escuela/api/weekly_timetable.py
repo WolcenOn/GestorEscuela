@@ -14,6 +14,10 @@ from pydantic import BaseModel, Field, model_validator
 
 from gestor_escuela.api.auth import PlannerDep, SessionDep
 from gestor_escuela.persistence.models import SchoolRow
+from gestor_escuela.solver.group_support import (
+    GroupParticipant,
+    GroupSupportDemand,
+)
 from gestor_escuela.solver.weekly_timetable import (
     BusyInterval,
     LessonDemand,
@@ -97,6 +101,8 @@ class SupportDemandInput(BaseModel):
     weekly_minutes: int = Field(gt=0, le=900, multiple_of=15)
     durations: list[int] = Field(min_length=1, max_length=20)
     blocked_subjects: list[str] = Field(default_factory=list, max_length=30)
+    avoided_subjects: list[str] = Field(default_factory=list, max_length=30)
+    preferred_subjects: list[str] = Field(default_factory=list, max_length=30)
     allowed_days: list[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4], min_length=1)
     max_sessions_per_day: int = Field(default=2, ge=1, le=5)
 
@@ -115,11 +121,47 @@ class SupportDemandInput(BaseModel):
         return self
 
 
+class GroupParticipantInput(BaseModel):
+    pupil_token: str = Field(min_length=1, max_length=64)
+    group_id: str = Field(min_length=1, max_length=64)
+    weekly_minutes: int = Field(gt=0, le=900, multiple_of=15)
+    blocked_subjects: list[str] = Field(default_factory=list, max_length=30)
+    avoided_subjects: list[str] = Field(default_factory=list, max_length=30)
+    preferred_subjects: list[str] = Field(default_factory=list, max_length=30)
+
+
+class GroupSupportInput(BaseModel):
+    request_id: str = Field(min_length=1, max_length=64)
+    service: str = Field(pattern=r"^(PT|AL)$")
+    teacher_id: str = Field(min_length=1, max_length=64)
+    session_minutes: int = Field(ge=15, le=180, multiple_of=15)
+    participants: list[GroupParticipantInput] = Field(min_length=1, max_length=8)
+    allowed_days: list[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4], min_length=1)
+    max_sessions_per_day: int = Field(default=2, ge=1, le=5)
+
+    @model_validator(mode="after")
+    def validate_group(self) -> GroupSupportInput:
+        if any(day not in range(5) for day in self.allowed_days):
+            raise ValueError("Los días del apoyo grupal deben ser de lunes a viernes")
+        if len(set(self.allowed_days)) != len(self.allowed_days):
+            raise ValueError("No se pueden repetir días del apoyo grupal")
+        if len({person.pupil_token for person in self.participants}) != len(self.participants):
+            raise ValueError("Un alumno no puede aparecer dos veces en el mismo apoyo")
+        if any(
+            person.weekly_minutes % self.session_minutes for person in self.participants
+        ):
+            raise ValueError("La duración grupal debe cubrir objetivos individuales exactos")
+        if max(person.weekly_minutes for person in self.participants) // self.session_minutes > 20:
+            raise ValueError("El apoyo grupal supera 20 sesiones")
+        return self
+
+
 class WeeklyPreviewInput(BaseModel):
     start_time: str = Field(pattern=_CLOCK)
     end_time: str = Field(pattern=_CLOCK)
     lessons: list[LessonDemandInput] = Field(min_length=1, max_length=100)
     supports: list[SupportDemandInput] = Field(default_factory=list, max_length=100)
+    group_supports: list[GroupSupportInput] = Field(default_factory=list, max_length=50)
     busy: list[BusyBlockInput] = Field(default_factory=list, max_length=500)
     max_time_seconds: float = Field(default=5.0, gt=0, le=15)
 
@@ -133,19 +175,35 @@ class WeeklyPreviewInput(BaseModel):
             sum(len(lesson.durations) for lesson in self.lessons)
             + sum(len(support.durations) for support in self.supports)
         )
+        total_sessions += sum(
+            max(person.weekly_minutes for person in group.participants)
+            // group.session_minutes
+            for group in self.group_supports
+        )
         if total_sessions > 150:
             raise ValueError("El avance semanal admite hasta 150 sesiones")
-        if len(self.lessons) + len(self.supports) > 100:
+        if len(self.lessons) + len(self.supports) + len(self.group_supports) > 100:
             raise ValueError("El avance semanal admite hasta 100 asignaturas y apoyos")
-        if len({item.request_id for item in self.supports}) != len(self.supports):
+        requests = [
+            item.request_id for item in self.supports
+        ] + [item.request_id for item in self.group_supports]
+        if len(set(requests)) != len(requests):
             raise ValueError("Cada apoyo necesita un identificador único")
         lesson_groups = {lesson.group_id for lesson in self.lessons}
         if any(item.group_id not in lesson_groups for item in self.supports):
             raise ValueError("El apoyo debe estar vinculado a un grupo del horario")
-        if len({
-            (support.pupil_token, support.service)
-            for support in self.supports
-        }) != len(self.supports):
+        if any(
+            person.group_id not in lesson_groups
+            for group in self.group_supports for person in group.participants
+        ):
+            raise ValueError("El grupo de cada participante debe existir en el horario")
+        participation = [
+            (support.pupil_token, support.service) for support in self.supports
+        ] + [
+            (person.pupil_token, group.service)
+            for group in self.group_supports for person in group.participants
+        ]
+        if len(set(participation)) != len(participation):
             raise ValueError("Cada alumno puede tener un objetivo por servicio")
         pairs = [(lesson.group_id, lesson.subject_id) for lesson in self.lessons]
         if any(count > 1 for count in Counter(pairs).values()):
@@ -199,10 +257,34 @@ def preview_weekly_timetable(
             weekly_minutes=item.weekly_minutes,
             durations=tuple(item.durations),
             blocked_subjects=tuple(item.blocked_subjects),
+            avoided_subjects=tuple(item.avoided_subjects),
+            preferred_subjects=tuple(item.preferred_subjects),
             allowed_days=tuple(item.allowed_days),
             max_sessions_per_day=item.max_sessions_per_day,
         )
         for item in payload.supports
+    )
+    grouped_needs = tuple(
+        GroupSupportDemand(
+            request_id=group.request_id,
+            service=group.service,
+            teacher_id=group.teacher_id,
+            session_minutes=group.session_minutes,
+            participants=tuple(
+                GroupParticipant(
+                    pupil_token=person.pupil_token,
+                    group_id=person.group_id,
+                    weekly_minutes=person.weekly_minutes,
+                    blocked_subjects=tuple(person.blocked_subjects),
+                    avoided_subjects=tuple(person.avoided_subjects),
+                    preferred_subjects=tuple(person.preferred_subjects),
+                )
+                for person in group.participants
+            ),
+            allowed_days=tuple(group.allowed_days),
+            max_sessions_per_day=group.max_sessions_per_day,
+        )
+        for group in payload.group_supports
     )
     try:
         result: TimetablePreview = solve_weekly_timetable(
@@ -212,6 +294,7 @@ def preview_weekly_timetable(
             _minute(payload.end_time),
             payload.max_time_seconds,
             supports=support_needs,
+            group_supports=grouped_needs,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -233,6 +316,17 @@ def preview_weekly_timetable(
             for item in result.lessons
         ],
         "reasons": list(result.reasons),
+        "group_supports": [
+            {
+                "request_id": item.request_id,
+                "service": item.service,
+                "weekday": item.weekday,
+                "start_time": _clock(item.start),
+                "end_time": _clock(item.end),
+                "participant_count": len(item.participant_tokens),
+            }
+            for item in result.group_supports
+        ],
         "supports": [
             {
                 "request_id": item.request_id,
