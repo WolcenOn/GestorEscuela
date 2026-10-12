@@ -58,7 +58,9 @@ def explain_weekly_infeasible(
     # A single subject cannot fit if its declared windows and fixed class or
     # specialist unavailability leave fewer minutes than its required total.
     for lesson in lessons:
-        window_start = max(start, lesson.earliest_start if lesson.earliest_start is not None else start)
+        window_start = max(
+            start, lesson.earliest_start if lesson.earliest_start is not None else start
+        )
         window_end = min(end, lesson.latest_end if lesson.latest_end is not None else end)
         teacher_free = _available_minutes(
             busy, "teacher_id", lesson.teacher_id, lesson.allowed_days,
