@@ -902,7 +902,8 @@ def test_auto_room_choice_checks_open_hours_and_teacher_travel() -> None:
         ),
     )
     specs = (
-        RoomSpec("ROOM-A", 1, (RoomWindow(0, 585, 630),)),
+        # An existing session must also fall within the room's opening time.
+        RoomSpec("ROOM-A", 1, (RoomWindow(0, 540, 630),)),
         RoomSpec("ROOM-B", 1, (RoomWindow(0, 585, 630),)),
     )
     result = solve_weekly_timetable(
