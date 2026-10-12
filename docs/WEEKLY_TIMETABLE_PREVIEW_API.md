@@ -256,6 +256,57 @@ Horario-PT-AL. Nunca mueve sesiones existentes ni anula una sala fijada
 en el grupo o en el profesional. La sala general se mantiene como
 predeterminada cuando la selección automática no está habilitada.
 
+### Equipamiento y accesibilidad de la sala (políticas de actividad)
+
+`rooms[].features` permite enumerar únicamente estas características
+**genéricas del entorno físico**, sin comentarios libres ni datos médicos:
+
+- `acceso_sin_escalones` — ruta accesible sin escalones;
+- `mesa_regulable` — mobiliario regulable;
+- `aislamiento_acustico` — aislamiento acústico;
+- `material_logopedico` — material disponible para intervención AL;
+- `pizarra_digital` — pantalla o pizarra digital.
+
+Los apoyos `supports[]` y `group_supports[]` pueden exigir
+`required_features` con cualquiera de esas características, sin duplicados.
+Estas reglas pertenecen **al servicio o actividad**, nunca se extraen
+de diagnósticos ni expedientes de alumnos. El motor no devuelve tokens,
+identificadores de alumnado ni los requisitos en su respuesta.
+
+Si hay `room_candidates`, solo se consideran las salas configuradas
+que dispongan de **todas** las características obligatorias. Si ninguna
+cumple, el resultado es `infeasible`: no se relaja ninguna condición.
+Una sala fija también debe estar inventariada y cumplirlas; si falta
+su definición, la petición se rechaza como configuración incompleta
+(HTTP 422). Si tiene definición pero carece de las características,
+la simulación indica inviabilidad. Sin requisitos declarados el
+comportamiento anterior permanece intacto.
+
+Ejemplo sin información personal:
+
+```json
+{
+  "rooms": [
+    {
+      "room_id": "Sala AL",
+      "capacity": 3,
+      "features": ["aislamiento_acustico", "material_logopedico"]
+    }
+  ],
+  "group_supports": [{
+    "request_id": "sesiones-AL",
+    "service": "AL",
+    "room_candidates": ["Sala AL"],
+    "required_features": ["material_logopedico"]
+  }]
+}
+```
+
+El fragmento ilustra los nuevos campos y no es por sí solo una petición
+completa; las necesidades PT/AL incluyen los demás campos obligatorios.
+El frontend permite marcar requisitos generales para PT y AL, no
+requisitos asociados a un alumno individual.
+
 ### Aforo y disponibilidad por día y hora (vistas previas)
 
 La propiedad opcional `rooms` del POST admite hasta 50 salas configuradas:
