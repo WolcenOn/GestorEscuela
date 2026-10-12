@@ -154,3 +154,114 @@ def test_specialist_cannot_be_double_booked_across_classes(
     if expected_status == 422:
         assert "Teacher P01" in result.json()["detail"]
         assert "slot S1" in result.json()["detail"]
+
+
+@pytest.mark.parametrize(
+    ("second_start", "second_end", "expected_status"),
+    [
+        ("10:00", "10:45", 422),  # Partial overlap with a 90-minute block.
+        ("10:30", "11:15", 200),  # Adjacent blocks are allowed.
+        ("09:00", "09:45", 422),  # Full overlap with different slot IDs.
+    ],
+)
+def test_unequal_length_slots_reject_teacher_overlap(
+    client: TestClient,
+    second_start: str,
+    second_end: str,
+    expected_status: int,
+) -> None:
+    school = client.post("/schools", json={"name": "CEIP Intervalos"})
+    assert school.status_code == 201
+    payload = configuration()
+    payload["groups"].append({"id": "G2", "label": "2º A", "stage": "Primaria"})
+    payload["time_slots"][0].update({"start_time": "09:00", "end_time": "10:30"})
+    payload["time_slots"].append(
+        {
+            "id": "S2",
+            "label": "Segundo bloque",
+            "order": 2,
+            "start_time": second_start,
+            "end_time": second_end,
+        }
+    )
+    second_activity = payload["activities"][1]
+    second_activity.update(
+        {"weekday": 0, "slot_id": "S2", "teacher_id": "P01", "group_id": "G2"}
+    )
+
+    saved = client.put(
+        f"/schools/{school.json()['id']}/academic-configuration",
+        json=payload,
+    )
+    assert saved.status_code == expected_status
+    if expected_status == 422:
+        detail = saved.json()["detail"]
+        assert "Teacher P01" in detail
+        assert "S1" in detail and "S2" in detail
+    else:
+        read = client.get(
+            f"/schools/{school.json()['id']}/academic-configuration"
+        )
+        assert read.status_code == 200
+        assert read.json()["time_slots"] == payload["time_slots"]
+
+
+def test_same_class_cannot_have_two_teachers_at_once(client: TestClient) -> None:
+    school = client.post("/schools", json={"name": "CEIP Aula Unica"})
+    assert school.status_code == 201
+    payload = configuration()
+    payload["time_slots"][0].update({"start_time": "09:00", "end_time": "10:30"})
+    payload["time_slots"].append(
+        {
+            "id": "S2", "label": "Solapado", "order": 2,
+            "start_time": "10:00", "end_time": "10:45",
+        }
+    )
+    payload["activities"][1].update({"weekday": 0, "slot_id": "S2"})
+    saved = client.put(
+        f"/schools/{school.json()['id']}/academic-configuration",
+        json=payload,
+    )
+    assert saved.status_code == 422
+    assert "Group G1" in saved.json()["detail"]
+
+
+@pytest.mark.parametrize(
+    ("start_time", "end_time"),
+    [
+        ("09:00", None),
+        (None, "10:30"),
+        ("10:30", "09:00"),
+        ("09:05", "10:30"),
+        ("09:00", "12:15"),
+        ("09:xx", "10:00"),
+    ],
+)
+def test_invalid_slot_ranges_are_rejected_before_saving(
+    client: TestClient, start_time: str | None, end_time: str | None
+) -> None:
+    school = client.post("/schools", json={"name": "CEIP Validacion"})
+    assert school.status_code == 201
+    payload = configuration()
+    payload["time_slots"][0].update(
+        {"start_time": start_time, "end_time": end_time}
+    )
+    saved = client.put(
+        f"/schools/{school.json()['id']}/academic-configuration",
+        json=payload,
+    )
+    assert saved.status_code == 422
+
+
+def test_legacy_slots_remain_valid_without_times(client: TestClient) -> None:
+    school = client.post("/schools", json={"name": "CEIP Compatibilidad"})
+    assert school.status_code == 201
+    school_id = school.json()["id"]
+    payload = configuration()
+    assert client.put(
+        f"/schools/{school_id}/academic-configuration", json=payload
+    ).status_code == 200
+    read = client.get(f"/schools/{school_id}/academic-configuration")
+    assert read.status_code == 200
+    assert read.json()["time_slots"][0]["start_time"] is None
+    assert read.json()["time_slots"][0]["end_time"] is None
