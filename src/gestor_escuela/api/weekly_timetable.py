@@ -20,6 +20,7 @@ from gestor_escuela.solver.group_support import (
 )
 from gestor_escuela.solver.weekly_diagnostics import explain_weekly_infeasible
 from gestor_escuela.solver.weekly_resources import TravelRule
+from gestor_escuela.solver.weekly_rooms import RoomSpec, RoomWindow
 from gestor_escuela.solver.weekly_timetable import (
     BusyInterval,
     LessonDemand,
@@ -86,11 +87,14 @@ class BusyBlockInput(BaseModel):
     pupil_token: str | None = Field(default=None, max_length=64)
     location_id: str | None = Field(default=None, min_length=1, max_length=64)
     room_id: str | None = Field(default=None, min_length=1, max_length=64)
+    room_units: int | None = Field(default=None, ge=1, le=30)
 
     @model_validator(mode="after")
     def check_block(self) -> BusyBlockInput:
         if not any((self.teacher_id, self.group_id, self.pupil_token, self.room_id)):
             raise ValueError("Indica docente, grupo, alumno anónimo o sala para el bloqueo")
+        if self.room_units is not None and not self.room_id:
+            raise ValueError("El número de ocupantes requiere identificar la sala")
         if self.end_time <= self.start_time:
             raise ValueError("El bloqueo debe acabar después de empezar")
         if _minute(self.start_time) % 15 or _minute(self.end_time) % 15:
@@ -178,6 +182,42 @@ class TravelRuleInput(BaseModel):
         return self
 
 
+class RoomWindowInput(BaseModel):
+    weekday: int = Field(ge=0, le=4)
+    start_time: str = Field(pattern=_CLOCK)
+    end_time: str = Field(pattern=_CLOCK)
+
+    @model_validator(mode="after")
+    def check_window(self) -> RoomWindowInput:
+        if (
+            self.start_time >= self.end_time
+            or _minute(self.start_time) % 15
+            or _minute(self.end_time) % 15
+        ):
+            raise ValueError("El horario de sala debe respetar la rejilla de 15 minutos")
+        return self
+
+
+class RoomSpecInput(BaseModel):
+    room_id: str = Field(min_length=1, max_length=64)
+    capacity: int = Field(ge=1, le=30)
+    windows: list[RoomWindowInput] = Field(default_factory=list, max_length=30)
+
+    @model_validator(mode="after")
+    def check_windows(self) -> RoomSpecInput:
+        for weekday in range(5):
+            intervals = sorted(
+                (item.start_time, item.end_time)
+                for item in self.windows if item.weekday == weekday
+            )
+            if any(
+                intervals[index][1] > intervals[index + 1][0]
+                for index in range(len(intervals) - 1)
+            ):
+                raise ValueError("Los horarios de la sala se solapan")
+        return self
+
+
 class WeeklyPreviewInput(BaseModel):
     start_time: str = Field(pattern=_CLOCK)
     end_time: str = Field(pattern=_CLOCK)
@@ -188,6 +228,7 @@ class WeeklyPreviewInput(BaseModel):
     max_time_seconds: float = Field(default=5.0, gt=0, le=15)
     travel_minutes: int = Field(default=0, ge=0, le=60, multiple_of=15)
     travel_rules: list[TravelRuleInput] = Field(default_factory=list, max_length=100)
+    rooms: list[RoomSpecInput] = Field(default_factory=list, max_length=50)
 
     @model_validator(mode="after")
     def check_school_day(self) -> WeeklyPreviewInput:
@@ -198,6 +239,16 @@ class WeeklyPreviewInput(BaseModel):
         ]
         if len(set(route_keys)) != len(route_keys):
             raise ValueError("No se puede repetir una ruta con igual sentido")
+        if len({room.room_id for room in self.rooms}) != len(self.rooms):
+            raise ValueError("No se puede repetir una sala configurada")
+        if sum(len(room.windows) for room in self.rooms) > 200:
+            raise ValueError("Solo se permiten 200 franjas de disponibilidad de salas")
+        if any(
+            _minute(window.start_time) < _minute(self.start_time)
+            or _minute(window.end_time) > _minute(self.end_time)
+            for room in self.rooms for window in room.windows
+        ):
+            raise ValueError("Disponibilidad de sala fuera de la jornada")
         if _minute(self.start_time) % 15 or _minute(self.end_time) % 15:
             raise ValueError("La jornada debe respetar la rejilla de 15 minutos")
         total_sessions = (
@@ -277,6 +328,7 @@ def preview_weekly_timetable(
             pupil_token=block.pupil_token,
             location_id=block.location_id,
             room_id=block.room_id,
+            room_units=block.room_units,
         )
         for block in payload.busy
     )
@@ -336,6 +388,17 @@ def preview_weekly_timetable(
             travel_rules=tuple(
                 TravelRule(rule.from_location_id, rule.to_location_id, rule.minutes)
                 for rule in payload.travel_rules
+            ),
+            room_specs=tuple(
+                RoomSpec(
+                    room_id=room.room_id,
+                    capacity=room.capacity,
+                    windows=tuple(
+                        RoomWindow(window.weekday, _minute(window.start_time), _minute(window.end_time))
+                        for window in room.windows
+                    ),
+                )
+                for room in payload.rooms
             ),
         )
     except ValueError as exc:
