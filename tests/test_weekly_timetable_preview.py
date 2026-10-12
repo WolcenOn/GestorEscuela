@@ -12,6 +12,7 @@ from gestor_escuela.persistence.db import Base, get_session
 from gestor_escuela.solver.group_support import GroupParticipant, GroupSupportDemand
 from gestor_escuela.solver.weekly_diagnostics import explain_weekly_infeasible
 from gestor_escuela.solver.weekly_resources import TravelRule
+from gestor_escuela.solver.weekly_rooms import RoomSpec, RoomWindow
 from gestor_escuela.solver.weekly_timetable import (
     BusyInterval,
     LessonDemand,
@@ -738,3 +739,135 @@ def test_api_rejects_same_location_duplicate_route_and_bad_quantization(
     )
     assert result.status_code == 200
     assert result.json()["preview_only"] is True
+
+
+def test_room_capacity_allows_two_individual_sessions_only_when_large_enough() -> None:
+    lessons = (
+        LessonDemand("1A", "MAT", "C1", 45, (45,), allowed_days=(0,)),
+        LessonDemand("1B", "MAT", "C2", 45, (45,), allowed_days=(0,)),
+    )
+    supports = (
+        SupportDemand(
+            "pt", "PT", "PT1", "pupil-1", "1A", 45, (45,),
+            allowed_days=(0,), room_id="ROOM",
+        ),
+        SupportDemand(
+            "al", "AL", "AL1", "pupil-2", "1B", 45, (45,),
+            allowed_days=(0,), room_id="ROOM",
+        ),
+    )
+    legacy = solve_weekly_timetable(lessons, (), 540, 585, supports=supports)
+    assert legacy.status == "infeasible"  # Unconfigured rooms are exclusive.
+    shared = solve_weekly_timetable(
+        lessons, (), 540, 585, supports=supports,
+        room_specs=(RoomSpec("ROOM", 2),),
+    )
+    assert shared.status == "feasible"
+    assert len(shared.supports) == 2
+    assert {row.start for row in shared.supports} == {540}
+    single = solve_weekly_timetable(
+        lessons, (), 540, 585, supports=supports,
+        room_specs=(RoomSpec("ROOM", 1),),
+    )
+    assert single.status == "infeasible"
+
+
+def test_room_counts_actual_group_attendees_not_its_full_roster() -> None:
+    lesson = LessonDemand("1A", "MAT", "CLASS", 45, (45,), allowed_days=(0,))
+    group = GroupSupportDemand(
+        "group", "PT", "PT", 45, (
+            GroupParticipant("a", "1A", 90),
+            GroupParticipant("b", "1A", 45),
+            GroupParticipant("c", "1A", 45),
+        ), allowed_days=(0,), room_id="ROOM",
+    )
+    # A is present in both sessions; B and C each in exactly one.
+    result = solve_weekly_timetable(
+        (lesson,), (), 540, 630, group_supports=(group,),
+        room_specs=(RoomSpec("ROOM", 2),),
+    )
+    assert result.status == "feasible"
+    assert sorted(len(row.participant_tokens) for row in result.group_supports) == [2, 2]
+    insufficient = solve_weekly_timetable(
+        (lesson,), (), 540, 630, group_supports=(group,),
+        room_specs=(RoomSpec("ROOM", 1),),
+    )
+    assert insufficient.status == "infeasible"
+    legacy = solve_weekly_timetable(
+        (lesson,), (), 540, 630, group_supports=(group,),
+    )
+    assert legacy.status == "feasible"  # Old group room semantics preserved.
+
+
+def test_room_open_windows_restrict_weekday_and_exact_start() -> None:
+    lesson = LessonDemand("1A", "MAT", "C", 45, (45,), allowed_days=(0,))
+    support = SupportDemand(
+        "pt", "PT", "PT", "p", "1A", 45, (45,),
+        room_id="ROOM", allowed_days=(0, 1, 2, 3, 4),
+    )
+    room = RoomSpec("ROOM", 1, (RoomWindow(0, 600, 645),))
+    result = solve_weekly_timetable(
+        (lesson,), (), 540, 720, supports=(support,),
+        room_specs=(room,),
+    )
+    assert result.status == "feasible"
+    assert result.supports[0].weekday == 0
+    assert result.supports[0].start == 600
+    closed = solve_weekly_timetable(
+        (lesson,), (BusyInterval(0, 600, 645, teacher_id="PT"),),
+        540, 720, supports=(support,), room_specs=(room,),
+    )
+    assert closed.status == "infeasible"
+
+
+def test_room_reservations_can_count_pupils_or_reserve_entire_room() -> None:
+    lesson = LessonDemand("1A", "MAT", "C", 45, (45,), allowed_days=(0,))
+    support = SupportDemand(
+        "pt", "PT", "PT", "p", "1A", 45, (45,),
+        allowed_days=(0,), room_id="ROOM",
+    )
+    one = (BusyInterval(0, 540, 585, room_id="ROOM", room_units=1),)
+    shared = solve_weekly_timetable(
+        (lesson,), one, 540, 585, supports=(support,),
+        room_specs=(RoomSpec("ROOM", 2),),
+    )
+    assert shared.status == "feasible"
+    full_reservation = (BusyInterval(0, 540, 585, room_id="ROOM"),)
+    blocked = solve_weekly_timetable(
+        (lesson,), full_reservation, 540, 585, supports=(support,),
+        room_specs=(RoomSpec("ROOM", 2),),
+    )
+    assert blocked.status == "infeasible"
+
+
+def test_preview_api_validates_room_capacity_and_weekday_windows(client: TestClient) -> None:
+    school_id = client.post("/schools", json={"name": "CEIP Espacios"}).json()["id"]
+    uri = f"/schools/{school_id}/weekly-timetable/preview"
+    payload = _payload()
+    payload["rooms"] = [{
+        "room_id": "AULA-PT",
+        "capacity": 4,
+        "windows": [
+            {"weekday": 0, "start_time": "09:00", "end_time": "10:30"},
+            {"weekday": 0, "start_time": "10:00", "end_time": "11:00"},
+        ],
+    }]
+    assert client.post(uri, json=payload).status_code == 422
+    payload["rooms"][0]["windows"].pop()
+    assert client.post(uri, json=payload).status_code == 200
+    payload["rooms"][0]["capacity"] = 0
+    assert client.post(uri, json=payload).status_code == 422
+    payload["rooms"][0]["capacity"] = 2
+    payload["rooms"].append(dict(payload["rooms"][0]))
+    assert client.post(uri, json=payload).status_code == 422
+    payload["rooms"].pop()
+    payload["rooms"][0]["windows"][0]["start_time"] = "08:00"
+    assert client.post(uri, json=payload).status_code == 422
+    payload["rooms"][0]["windows"][0]["start_time"] = "09:00"
+    payload["busy"] = [{
+        "weekday": 0, "start_time": "09:00", "end_time": "09:45",
+        "room_id": "AULA-PT", "room_units": 2,
+    }]
+    response = client.post(uri, json=payload)
+    assert response.status_code == 200
+    assert response.json()["preview_only"] is True
