@@ -228,6 +228,34 @@ No existe todavía optimización de rutas entre edificios, aforo de salas
 de más de una sesión ni sala individual por alumno. La propuesta es siempre
 informativa y no modifica configuración académica ni base de datos.
 
+### Asignación automática de salas en apoyos PT/AL (opcional)
+
+Una necesidad individual de `supports` o grupal de `group_supports`
+puede incluir **`room_candidates`**: entre una y ocho referencias a
+salas que aparecen en `rooms`. La sala no se fija por petición;
+**el motor elige una sala por cada sesión**, teniendo en cuenta horarios
+de apertura, plazas simultáneas, reservas previas y desplazamientos
+del especialista. Las diferentes sesiones de un mismo grupo pueden
+acabar en salas distintas si así se satisfacen mejor las restricciones.
+
+```json
+{
+  "room_candidates": ["Sala PT", "Sala de apoyo compartido"]
+}
+```
+
+No se admiten salas repetidas, inexistentes, ni la combinación de
+`room_candidates` con `room_id` o `location_id` obligatorios.
+La respuesta de cada apoyo incluye `room_id` con la sala realmente
+elegida, sin devolver nombres, identificadores o tokens del alumnado.
+Si no se proporcionan candidatos, se conserva la asignación de sala
+explícita y todo el comportamiento legado de uso exclusivo.
+
+La opción de selección automática se habilita **explícitamente** en
+Horario-PT-AL. Nunca mueve sesiones existentes ni anula una sala fijada
+en el grupo o en el profesional. La sala general se mantiene como
+predeterminada cuando la selección automática no está habilitada.
+
 ### Aforo y disponibilidad por día y hora (vistas previas)
 
 La propiedad opcional `rooms` del POST admite hasta 50 salas configuradas:
