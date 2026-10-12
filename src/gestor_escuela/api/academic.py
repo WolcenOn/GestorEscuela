@@ -77,6 +77,27 @@ def _validate_configuration(payload: SchoolConfigurationPut) -> None:
                 detail=f"Teacher {teacher.id} references unknown groups: {sorted(unknown_groups)}",
             )
 
+    # A specialist/PT/AL professional cannot teach two different classes
+    # during the same slot. A weekday=None activity applies every school day.
+    # Validate at import time so the solver does not silently overwrite one
+    # activity when indexing teacher/slot assignments.
+    occupied_teacher_slots: dict[tuple[int, str, str], str] = {}
+    for activity in payload.activities:
+        weekdays = range(5) if activity.weekday is None else (activity.weekday,)
+        for weekday in weekdays:
+            key = (weekday, activity.slot_id, activity.teacher_id)
+            existing_id = occupied_teacher_slots.get(key)
+            if existing_id is not None:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"Teacher {activity.teacher_id} has overlapping activities "
+                        f"{existing_id} and {activity.id} on weekday {weekday}, "
+                        f"slot {activity.slot_id}"
+                    ),
+                )
+            occupied_teacher_slots[key] = activity.id
+
     for activity in payload.activities:
         if activity.slot_id not in slot_ids:
             raise HTTPException(

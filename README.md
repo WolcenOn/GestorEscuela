@@ -1,143 +1,167 @@
 # GestorEscuela
 
-Plataforma en desarrollo para organización escolar, ausencias, sustituciones y resiliencia operativa.
+Backend multiusuario para planificación académica, operativa diaria, ausencias, sustituciones y escenarios compartidos del Planificador del centro.
 
 ## Estado actual
 
-El proyecto ya dispone de:
+La rama de integración incluye:
 
-- solver global de sustituciones con OR-Tools CP-SAT;
-- modelo de dominio independiente de FastAPI y SQLAlchemy;
-- API FastAPI para centros, planes diarios, resolución, confirmación y reapertura;
-- persistencia SQLAlchemy con migraciones Alembic;
-- configuración operativa por centro para grupos, franjas, docentes y actividades;
-- aislamiento por centro;
-- versionado optimista de `DayPlan` y auditoría de resoluciones/transiciones;
-- PostgreSQL como base de datos objetivo y pruebas de integración reales en CI;
-- identidades persistidas y membresías por centro;
-- autorización por membresía cuando se envía `X-Actor-Id`;
-- creación de planes únicamente en ruta tenant-scoped.
+- FastAPI + PostgreSQL + SQLAlchemy + Alembic;
+- autenticación por correo/contraseña con sesiones Bearer opacas;
+- roles `ADMIN`, `PLANNER` y `VIEWER` obtenidos de la membresía persistida del centro;
+- aislamiento multi-tenant por `school_id` con regresiones entre centros;
+- throttling de login, expiración absoluta y por inactividad, listado/revocación de sesiones;
+- cambio y recuperación de contraseña mediante token temporal de un solo uso;
+- invitaciones y membresías por centro;
+- cursos académicos, escenarios y snapshots compartidos;
+- configuración académica y operativa por centro;
+- planificación diaria y solver de sustituciones con OR-Tools CP-SAT;
+- auditoría semántica sin almacenar cuerpos de peticiones;
+- CI con Ruff, Mypy, PostgreSQL/Alembic, tests, solver y Playwright;
+- verificación automática de actualización de esquema, backup y restauración PostgreSQL.
 
-## Preparar el entorno en Windows PowerShell
+El mecanismo antiguo `X-Actor-Id` / `X-Actor-Role` existe únicamente para migraciones de instalaciones previas. `ALLOW_LEGACY_ROLE_BOOTSTRAP` es `false` por defecto y debe permanecer `false` en producción.
+
+## Preparar el entorno
+
+En PowerShell:
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -e ".[dev]"
-```
-
-## Levantar PostgreSQL local
-
-Requiere Docker Desktop o un entorno compatible con Docker Compose.
-
-```powershell
 docker compose up -d postgres
+alembic upgrade head
 ```
 
-La configuración local por defecto es:
+La configuración PostgreSQL local por defecto es:
 
 ```text
 Base de datos: gestor_escuela
 Usuario:       gestor
 Contraseña:    gestor
 Puerto:        5432
+URL:           postgresql+psycopg://gestor:gestor@localhost:5432/gestor_escuela
 ```
 
-La aplicación usa por defecto:
-
-```text
-postgresql+psycopg://gestor:gestor@localhost:5432/gestor_escuela
-```
-
-Se puede sustituir con la variable de entorno `DATABASE_URL`.
-
-## Aplicar migraciones
-
-```powershell
-alembic upgrade head
-```
+Se puede sustituir con `DATABASE_URL`.
 
 ## Ejecutar validaciones
 
 ```powershell
-python -m pytest
 ruff check .
 mypy src
+python -m pytest
 python simulate.py
 ```
 
-## Ejecutar la API
+El workflow de integración añade PostgreSQL real, migración desde una revisión anterior y un ensayo de `pg_dump` + restauración.
+
+## Ejecutar la aplicación
+
+La aplicación completa, incluida la UI operativa embebida, se inicia con:
 
 ```powershell
-uvicorn gestor_escuela.api.app:app --reload
+$env:PYTHONPATH="src"
+python -m uvicorn gestor_escuela.web:app --reload
 ```
 
-La documentación OpenAPI queda disponible en `/docs` mientras la API está en ejecución.
+La documentación OpenAPI queda en `/docs` y el healthcheck en `/health`.
 
-## Identidad y membresías
+## Autenticación y cuentas
 
-Durante esta fase existe un bootstrap provisional mediante `X-Actor-Role`. Su finalidad es crear el centro, la identidad y la primera membresía administrativa; no constituye autenticación real.
-
-Mientras un centro no tenga ninguna membresía, `X-Actor-Role` puede utilizarse para completar ese bootstrap. En cuanto existe la primera membresía, las rutas con `school_id` dejan de aceptar autorización basada solo en rol y exigen:
+La vía normal de alta es:
 
 ```text
-X-Actor-Id: <UUID_DEL_USUARIO>
+POST /auth/register-school
 ```
 
-La membresía persistida del usuario en ese centro es entonces la única fuente de verdad del rol. Enviar además `X-Actor-Role` no permite elevar privilegios.
+Crea en una sola operación la primera cuenta, sus credenciales, el centro, la membresía `ADMIN` y una sesión Bearer.
 
-Flujo de bootstrap actual:
+El acceso posterior utiliza:
 
-1. crear el centro;
-2. crear usuario con `POST /users`;
-3. asignar la primera membresía `ADMIN` con `PUT /schools/{school_id}/memberships`;
-4. usar `X-Actor-Id` en todas las operaciones posteriores del centro.
+```text
+POST /auth/login
+Authorization: Bearer <token>
+```
 
-Los roles actuales son:
+El token bruto no se persiste en PostgreSQL: se almacena su digest. Las rutas tenant-scoped validan que el usuario autenticado tenga membresía en el `school_id` solicitado; enviar cabeceras de rol no permite elevar privilegios.
 
-- `ADMIN`: configuración, membresías y reapertura;
-- `PLANNER`: creación/cálculo/confirmación de planes;
+Rutas principales de cuenta:
+
+```text
+GET    /auth/me
+GET    /auth/sessions
+DELETE /auth/sessions/{session_id}
+POST   /auth/logout
+POST   /auth/logout-all
+POST   /auth/password/change
+POST   /auth/password/reset-request
+POST   /auth/password/reset-confirm
+GET    /auth/audit-log
+```
+
+La recuperación de contraseña devuelve siempre la misma respuesta para correos existentes o inexistentes. Los tokens son aleatorios, se guardan únicamente hasheados, caducan y solo pueden usarse una vez. El envío requiere SMTP configurado en producción.
+
+## Roles y aislamiento
+
+Los roles son:
+
+- `ADMIN`: configuración, membresías, invitaciones y operaciones administrativas;
+- `PLANNER`: planificación, cálculo y gestión operativa;
 - `VIEWER`: lectura.
 
-La creación de planes está acotada al tenant:
+El rol efectivo procede siempre de la membresía persistida para ese centro. La matriz de regresión intenta leer y modificar recursos de un segundo centro con un Bearer válido del primero y exige `403`.
+
+## Auditoría
+
+Las mutaciones registran metadatos mínimos: `request_id`, centro cuando aplica, actor, rol, `event_type`, método, ruta, resultado y fecha. No se guardan cuerpos de peticiones ni respuestas.
+
+Ejemplos de eventos semánticos:
 
 ```text
-POST /schools/{school_id}/day-plans
+auth.password.change
+auth.session.revoke
+membership.update
+membership.invitation.create
+academic.configuration.replace
+planning.scenario.snapshot.save
+operations.day_plan.solve
 ```
 
-No existe una ruta global de creación de `DayPlan`.
+Los administradores consultan la auditoría del centro en `/schools/{school_id}/audit-log`; cada usuario autenticado puede consultar los eventos atribuibles a su propia cuenta en `/auth/audit-log`.
 
-## Importar configuración de un centro desde JSON
+## Backup y restauración
 
-Existe un ejemplo en:
+Crear un backup custom de PostgreSQL:
 
-```text
-examples/school_configuration.example.json
+```bash
+DATABASE_URL='postgresql+psycopg://...' \
+  bash scripts/backup_postgres.sh /ruta/segura/gestor-escuela.dump
 ```
 
-Durante el bootstrap, antes de crear la primera membresía:
+Restaurarlo en una base de destino:
 
-```powershell
-python -m gestor_escuela.import_config `
-  --school-id 00000000-0000-0000-0000-000000000001 `
-  --file examples/school_configuration.example.json
+```bash
+DATABASE_URL='postgresql+psycopg://.../destino' \
+  bash scripts/restore_postgres.sh /ruta/segura/gestor-escuela.dump
 ```
 
-Una vez el centro tiene membresías, se debe indicar un usuario `ADMIN`:
+Los dumps pueden contener datos personales y nunca deben almacenarse en GitHub. El procedimiento completo y el gate de despliegue están en `docs/OPERATIONS_RUNBOOK.md`.
 
-```powershell
-python -m gestor_escuela.import_config `
-  --school-id 00000000-0000-0000-0000-000000000001 `
-  --actor-id 00000000-0000-0000-0000-000000000002 `
-  --file .\mi-centro.json `
-  --api-url http://127.0.0.1:8000
-```
+## Importación de configuración
 
-El fichero usa el mismo esquema de validación que `PUT /schools/{school_id}/configuration`.
+Existe un ejemplo en `examples/school_configuration.example.json`. La importación legacy se conserva únicamente para migraciones y requiere autorización válida según el estado de la instalación; no es el flujo recomendado para altas nuevas.
 
 ## Concurrencia
 
-`DayPlan.version` funciona como contador de versión optimista. Las escrituras del ORM se condicionan a la versión conocida de la fila; si otra transacción la modifica antes, la segunda escritura se rechaza como actualización obsoleta. GitHub Actions valida este comportamiento contra PostgreSQL con dos sesiones independientes y también mediante peticiones HTTP concurrentes.
+`DayPlan.version` usa versionado optimista. Si otra transacción modifica el plan antes de una escritura, la actualización obsoleta se rechaza. CI verifica este comportamiento contra PostgreSQL con sesiones independientes y peticiones concurrentes.
+
+## Documentación operativa
+
+- `docs/OPERATIONS_RUNBOOK.md`: despliegue, backup, restore y gate de Fase 0.
+- `docs/DATA_RETENTION_AND_DELETION.md`: política técnica propuesta de retención, eliminación y anonimización.
+- `docs/adr/`: decisiones arquitectónicas.
 
 ## Estructura principal
 
@@ -147,20 +171,18 @@ src/gestor_escuela/
 ├── domain/
 ├── persistence/
 ├── simulation/
-├── solver/
-└── import_config.py
+└── solver/
 
 alembic/
+scripts/
 examples/
 tests/
-docs/adr/
+docs/
 simulate.py
 compose.yml
+railway.json
 ```
 
-## Deuda técnica actual
+## Despliegue Railway
 
-- `X-Actor-Role` sigue existiendo únicamente como mecanismo provisional de bootstrap; no es autenticación real.
-- La compatibilidad docente-grupo sigue siendo binaria; faltan requisitos por materia/perfil.
-- La equidad usa todavía un contador histórico simple, no ventanas semanal/mensual/trimestral.
-- Las explicaciones no enumeran aún el catálogo completo de candidatos descartados.
+`railway.json` ejecuta `python -m gestor_escuela.deploy` antes del arranque para aplicar migraciones y después inicia Uvicorn. En producción se debe verificar expresamente `ALLOW_LEGACY_ROLE_BOOTSTRAP=false`, HSTS activo y los orígenes CORS esperados. Las credenciales SMTP y de base de datos se configuran únicamente como secretos del entorno.

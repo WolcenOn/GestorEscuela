@@ -7,9 +7,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 
 from gestor_escuela.api.academic import router as academic_router
+from gestor_escuela.api.academic_context import router as academic_context_router
+from gestor_escuela.api.account_audit import router as account_audit_router
 from gestor_escuela.api.app import app
+from gestor_escuela.api.audit import audit_mutating_requests
+from gestor_escuela.api.auth_context import router as auth_context_router
 from gestor_escuela.api.operations import router as operations_router
+from gestor_escuela.api.password_auth import router as password_auth_router
 from gestor_escuela.api.plan_insights import router as plan_insights_router
+from gestor_escuela.api.roster import router as roster_router
+from gestor_escuela.api.security import MaxRequestBodyMiddleware, SecurityHeadersMiddleware
+from gestor_escuela.api.staffing import router as staffing_router
 
 _STATIC_DIR = Path(__file__).with_name("static")
 _UI_FILE = _STATIC_DIR / "index.html"
@@ -31,6 +39,10 @@ def _cors_origins() -> list[str]:
     return [origin.strip().rstrip("/") for origin in configured.split(",") if origin.strip()]
 
 
+app.middleware("http")(audit_mutating_requests)
+app.add_middleware(MaxRequestBodyMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
+
 origins = _cors_origins()
 if origins:
     app.add_middleware(
@@ -39,11 +51,18 @@ if origins:
         allow_credentials=False,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["Content-Type", "X-Actor-Id", "X-Actor-Role", "Authorization"],
+        expose_headers=["X-Request-Id", "Retry-After"],
     )
 
 app.include_router(academic_router)
+app.include_router(academic_context_router)
+app.include_router(auth_context_router)
+app.include_router(password_auth_router)
+app.include_router(account_audit_router)
 app.include_router(operations_router)
 app.include_router(plan_insights_router)
+app.include_router(roster_router)
+app.include_router(staffing_router)
 
 
 @app.get("/", include_in_schema=False)

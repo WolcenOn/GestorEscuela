@@ -2,7 +2,15 @@ from __future__ import annotations
 
 import pytest
 
-from gestor_escuela.domain.models import Absence, LockedSubstitution, SolverWeights, Teacher
+from gestor_escuela.domain.models import (
+    Absence,
+    Activity,
+    ActivityType,
+    LockedSubstitution,
+    SolverWeights,
+    Teacher,
+    TeacherProfile,
+)
 from gestor_escuela.simulation.dataset import build_pilot_dataset
 from gestor_escuela.solver.optimizer import SchoolDayOptimizer
 
@@ -216,3 +224,19 @@ def test_partial_solution_is_returned_instead_of_failure() -> None:
     assert not solution.substitutions
     assert len(solution.uncovered) == 1
     assert solution.total_penalty >= SolverWeights().uncovered
+
+
+def test_legacy_optimizer_refuses_double_booked_pt_al_or_specialist() -> None:
+    teachers = (
+        Teacher("P01", TeacherProfile.SPECIALIST, can_cover_groups=frozenset({"1A", "2A"})),
+    )
+    classes = (
+        Activity("A01", "S1", ActivityType.CLASS, "P01", group_id="1A"),
+        Activity("A02", "S1", ActivityType.CLASS, "P01", group_id="2A"),
+    )
+    with pytest.raises(ValueError, match="P01.*double-booked.*S1"):
+        SchoolDayOptimizer().solve(
+            teachers=teachers,
+            activities=classes,
+            absences=(),
+        )

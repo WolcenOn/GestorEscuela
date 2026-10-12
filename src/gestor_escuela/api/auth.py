@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from gestor_escuela.api.auth_tokens import authenticated_user
 from gestor_escuela.persistence.db import get_session
 from gestor_escuela.persistence.models import SchoolMembershipRow, UserRow
 
@@ -26,6 +28,21 @@ class ActorContext:
 
 
 SessionDep = Annotated[Session, Depends(get_session)]
+
+
+def legacy_role_bootstrap_enabled() -> bool:
+    """Return whether the pre-Bearer role bootstrap is explicitly enabled.
+
+    The compatibility path is disabled by default. Deployments that still need to migrate an
+    older installation may opt in temporarily with ALLOW_LEGACY_ROLE_BOOTSTRAP=true.
+    """
+
+    return os.getenv("ALLOW_LEGACY_ROLE_BOOTSTRAP", "false").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 
 
 def _parse_role(value: str) -> ActorRole:
@@ -47,12 +64,59 @@ def _school_has_memberships(session: Session, school_id: UUID) -> bool:
     return membership_id is not None
 
 
+def _remember_actor(request: Request, session: Session, actor: ActorContext) -> ActorContext:
+    request.state.db_session = session
+    request.state.actor_user_id = actor.user_id
+    request.state.actor_role = actor.role.value
+    return actor
+
+
+def _membership_actor(
+    request: Request,
+    session: Session,
+    school_id: UUID,
+    user_id: UUID,
+) -> ActorContext:
+    membership = session.scalar(
+        select(SchoolMembershipRow).where(
+            SchoolMembershipRow.school_id == school_id,
+            SchoolMembershipRow.user_id == user_id,
+        )
+    )
+    if membership is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Actor is not a member of this school",
+        )
+    return _remember_actor(
+        request,
+        session,
+        ActorContext(user_id=user_id, role=_parse_role(membership.role)),
+    )
+
+
 def get_actor_context(
+    request: Request,
     session: SessionDep,
     school_id: UUID | None = None,
+    authorization: Annotated[str | None, Header(alias="Authorization")] = None,
     x_actor_id: Annotated[UUID | None, Header(alias="X-Actor-Id")] = None,
     x_actor_role: Annotated[str | None, Header(alias="X-Actor-Role")] = None,
 ) -> ActorContext:
+    # Keep the request-associated database bind available to the audit middleware even when
+    # authentication later fails. No request body is stored by the audit trail.
+    request.state.db_session = session
+
+    bearer_identity = authenticated_user(session, authorization)
+    if bearer_identity is not None:
+        user, _auth_session = bearer_identity
+        if school_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="School membership context is required",
+            )
+        return _membership_actor(request, session, school_id, user.id)
+
     if x_actor_id is not None:
         if session.get(UserRow, x_actor_id) is None:
             raise HTTPException(
@@ -60,20 +124,13 @@ def get_actor_context(
                 detail="Unknown actor identity",
             )
         if school_id is not None:
-            membership = session.scalar(
-                select(SchoolMembershipRow).where(
-                    SchoolMembershipRow.school_id == school_id,
-                    SchoolMembershipRow.user_id == x_actor_id,
-                )
+            return _membership_actor(request, session, school_id, x_actor_id)
+        if x_actor_role is not None and legacy_role_bootstrap_enabled():
+            return _remember_actor(
+                request,
+                session,
+                ActorContext(user_id=x_actor_id, role=_parse_role(x_actor_role)),
             )
-            if membership is None:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Actor is not a member of this school",
-                )
-            return ActorContext(user_id=x_actor_id, role=_parse_role(membership.role))
-        if x_actor_role is not None:
-            return ActorContext(user_id=x_actor_id, role=_parse_role(x_actor_role))
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="School membership context is required",
@@ -82,7 +139,13 @@ def get_actor_context(
     if x_actor_role is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="X-Actor-Id or X-Actor-Role header is required",
+            detail="Authenticated actor identity is required",
+        )
+
+    if not legacy_role_bootstrap_enabled():
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Legacy role bootstrap is disabled",
         )
 
     if school_id is not None and _school_has_memberships(session, school_id):
@@ -91,7 +154,11 @@ def get_actor_context(
             detail="X-Actor-Id is required after school bootstrap",
         )
 
-    return ActorContext(user_id=None, role=_parse_role(x_actor_role))
+    return _remember_actor(
+        request,
+        session,
+        ActorContext(user_id=None, role=_parse_role(x_actor_role)),
+    )
 
 
 ActorDep = Annotated[ActorContext, Depends(get_actor_context)]
