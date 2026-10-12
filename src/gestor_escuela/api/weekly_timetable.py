@@ -394,7 +394,11 @@ def preview_weekly_timetable(
                     room_id=room.room_id,
                     capacity=room.capacity,
                     windows=tuple(
-                        RoomWindow(window.weekday, _minute(window.start_time), _minute(window.end_time))
+                        RoomWindow(
+                            window.weekday,
+                            _minute(window.start_time),
+                            _minute(window.end_time),
+                        )
                         for window in room.windows
                     ),
                 )
