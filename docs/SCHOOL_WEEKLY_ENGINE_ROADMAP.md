@@ -36,8 +36,11 @@ Gestor-Alimentacion es otro proyecto y no participa en esta integración.
   `academic-configuration`, con migración Alembic 0018 y rejilla de
   15 minutos, hasta 180 minutos por bloque. `slot_id` legado funciona
   sin horas inferidas.
-- [x] Rechazar solapes parciales entre actividades de un mismo docente o
-  aula (grupo), con distinción de días y sesiones adyacentes.
+- [x] Rechazar solapes parciales del mismo docente en cualquier actividad,
+  y del mismo grupo en dos clases ordinarias. Una extracción PT/AL puede
+  coincidir con la clase del grupo sin implicar que coincida todo el alumnado;
+  la colisión por alumno queda pendiente de modelar.
+  Se distinguen días y sesiones adyacentes.
 - [x] El motor de sustituciones considera intervalos solapados al escoger
   profesionales y al impedir dos coberturas coincidentes.
 - [ ] Extender el modelo más allá de bloques predefinidos: currículo semanal,
