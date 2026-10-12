@@ -2,7 +2,7 @@
 
 All intervals use 15-minute integers to avoid floating-point drift. A hard
 constraint must never be relaxed to manufacture a feasible school timetable.
-This engine does not yet schedule individual PT/AL pupils or shared rooms.
+PT/AL pupils and explicit room resources share the same constraint model.
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ from gestor_escuela.solver.group_support import (
     extract_group_supports,
 )
 from gestor_escuela.solver.support_preferences import add_extraction_preferences
+from gestor_escuela.solver.weekly_resources import WeeklyResources
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,6 +34,8 @@ class LessonDemand:
     earliest_start: int | None = None
     latest_end: int | None = None
     max_sessions_per_day: int = 2
+    location_id: str | None = None
+    room_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,6 +46,8 @@ class BusyInterval:
     teacher_id: str | None = None
     group_id: str | None = None
     pupil_token: str | None = None
+    location_id: str | None = None
+    room_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,6 +64,8 @@ class SupportDemand:
     preferred_subjects: tuple[str, ...] = ()
     allowed_days: tuple[int, ...] = (0, 1, 2, 3, 4)
     max_sessions_per_day: int = 2
+    location_id: str | None = None
+    room_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,6 +108,7 @@ def solve_weekly_timetable(
     max_time_seconds: float = 5.0,
     supports: tuple[SupportDemand, ...] = (),
     group_supports: tuple[GroupSupportDemand, ...] = (),
+    travel_minutes: int = 0,
 ) -> TimetablePreview:
     """Place explicit durations exactly; never invent a remainder or miss minutes."""
     if start >= end or any(value % 15 for value in (start, end)):
@@ -109,6 +117,7 @@ def solve_weekly_timetable(
         raise ValueError("El límite de búsqueda debe estar entre 0 y 15 segundos.")
 
     model = cp_model.CpModel()
+    resources = WeeklyResources()
     intervals: dict[tuple[str, str, int], list[cp_model.IntervalVar]] = defaultdict(list)
     daily_demands: dict[tuple[int, int], list[cp_model.IntVar]] = defaultdict(list)
     decisions: list[tuple[LessonDemand, int, cp_model.IntVar, dict[int, cp_model.IntVar]]] = []
@@ -153,6 +162,12 @@ def solve_weekly_timetable(
                 )
                 intervals[("teacher", demand.teacher_id, weekday)].append(interval)
                 intervals[("group", demand.group_id, weekday)].append(interval)
+                if demand.room_id:
+                    intervals[("room", demand.room_id, weekday)].append(interval)
+                resources.add_teacher(
+                    demand.teacher_id, weekday, start_var, duration_ticks,
+                    present, demand.location_id,
+                )
                 class_intervals[(demand.group_id, demand.subject_id, weekday)].append(interval)
                 class_events[(demand.group_id, demand.subject_id, weekday)].append(
                     (start_var, duration_ticks, present)
@@ -198,6 +213,12 @@ def solve_weekly_timetable(
                 )
                 intervals[("teacher", support.teacher_id, weekday)].append(interval)
                 intervals[("pupil", support.pupil_token, weekday)].append(interval)
+                if support.room_id:
+                    intervals[("room", support.room_id, weekday)].append(interval)
+                resources.add_teacher(
+                    support.teacher_id, weekday, start_var, duration // 15,
+                    present, support.location_id,
+                )
                 daily_demands[(len(demands) + index, weekday)].append(present)
                 for subject in support.blocked_subjects:
                     for class_interval in class_intervals.get(
@@ -224,6 +245,7 @@ def solve_weekly_timetable(
     grouped = add_group_supports(
         model, group_supports, intervals, class_intervals,
         class_events, soft_terms, start, end,
+        resources,
     )
 
     for index, block in enumerate(busy):
@@ -236,6 +258,13 @@ def solve_weekly_timetable(
         )
         if block.teacher_id:
             intervals[("teacher", block.teacher_id, block.weekday)].append(fixed)
+            resources.add_teacher(
+                block.teacher_id, block.weekday,
+                block.start // 15, (block.end - block.start) // 15,
+                None, block.location_id,
+            )
+        if block.room_id:
+            intervals[("room", block.room_id, block.weekday)].append(fixed)
         if block.group_id:
             intervals[("group", block.group_id, block.weekday)].append(fixed)
         if block.pupil_token:
@@ -244,6 +273,8 @@ def solve_weekly_timetable(
     for entries in intervals.values():
         if len(entries) > 1:
             model.add_no_overlap(entries)
+
+    resources.constrain_travel(model, travel_minutes)
 
     if soft_terms:
         model.minimize(sum(soft_terms))
