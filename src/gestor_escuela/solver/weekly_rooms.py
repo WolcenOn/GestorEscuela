@@ -12,6 +12,8 @@ from dataclasses import dataclass
 
 from ortools.sat.python import cp_model
 
+from gestor_escuela.solver.weekly_resources import WeeklyResources
+
 
 @dataclass(frozen=True, slots=True)
 class RoomWindow:
@@ -111,3 +113,43 @@ class WeeklyRooms:
             model.add_cumulative(
                 cumulative_intervals, cumulative_demands, spec.capacity
             )
+
+
+def allocate_candidate_room(
+    model: cp_model.CpModel,
+    rooms: WeeklyRooms,
+    resources: WeeklyResources,
+    teacher_id: str,
+    days: dict[int, cp_model.IntVar],
+    start: cp_model.IntVar,
+    duration_ticks: int,
+    candidates: tuple[str, ...],
+    persons: int | cp_model.IntVar,
+    label: str,
+) -> dict[str, cp_model.IntVar]:
+    """Choose a single room with conditional occupancy and teacher travel."""
+    if not 1 <= len(candidates) <= 8 or len(set(candidates)) != len(candidates):
+        raise ValueError("Selecciona entre una y ocho salas distintas.")
+    if any(not room_id for room_id in candidates):
+        raise ValueError("Una sala candidata no tiene identificador.")
+    chosen: dict[str, cp_model.IntVar] = {
+        room_id: model.new_bool_var(f"{label}_select_{index}")
+        for index, room_id in enumerate(candidates)
+    }
+    model.add_exactly_one(chosen.values())
+    for weekday, present in days.items():
+        for index, (room_id, selected) in enumerate(chosen.items()):
+            active = model.new_bool_var(f"{label}_day_{weekday}_room_{index}")
+            model.add(active <= present)
+            model.add(active <= selected)
+            model.add(active >= present + selected - 1)
+            interval = model.new_optional_fixed_size_interval_var(
+                start, duration_ticks, active,
+                f"{label}_interval_{weekday}_{index}",
+            )
+            rooms.reserve(room_id, weekday, interval, persons=persons)
+            resources.add_teacher(
+                teacher_id, weekday, start, duration_ticks, active,
+                f"room:{room_id}",
+            )
+    return chosen
