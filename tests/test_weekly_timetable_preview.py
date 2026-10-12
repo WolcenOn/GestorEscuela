@@ -12,6 +12,7 @@ from gestor_escuela.persistence.db import Base, get_session
 from gestor_escuela.solver.weekly_timetable import (
     BusyInterval,
     LessonDemand,
+    SupportDemand,
     solve_weekly_timetable,
 )
 from gestor_escuela.web import app
@@ -154,3 +155,111 @@ def test_viewer_cannot_request_full_weekly_preview(client: TestClient) -> None:
         headers={"X-Actor-Role": "VIEWER"},
     )
     assert result.status_code == 403
+
+
+def test_pt_al_can_extract_from_allowed_subject_but_not_blocked_subject() -> None:
+    lesson = LessonDemand(
+        "1A", "MAT", "MATH", 90, (90,),
+        allowed_days=(0,), max_sessions_per_day=1,
+    )
+    support = SupportDemand(
+        "request-1", "PT", "P-PT", "anonymous-pupil", "1A", 45, (45,),
+        allowed_days=(0,), max_sessions_per_day=1,
+    )
+    allowed = solve_weekly_timetable((lesson,), (), 540, 630, supports=(support,))
+    assert allowed.status == "feasible"
+    assert allowed.supports[0].weekday == 0
+    assert allowed.supports[0].start < allowed.lessons[0].end
+    blocked = solve_weekly_timetable(
+        (lesson,), (), 540, 630,
+        supports=(
+            SupportDemand(
+                "request-1", "PT", "P-PT", "anonymous-pupil", "1A",
+                45, (45,), blocked_subjects=("MAT",), allowed_days=(0,),
+            ),
+        ),
+    )
+    assert blocked.status == "infeasible"
+    assert not blocked.supports
+
+
+def test_two_support_services_never_double_book_one_pupil() -> None:
+    lesson = LessonDemand("1A", "MAT", "MATH", 45, (45,), allowed_days=(0,))
+    pt = SupportDemand(
+        "r-pt", "PT", "PT-PRO", "anon-1", "1A", 45, (45,), allowed_days=(0,)
+    )
+    al = SupportDemand(
+        "r-al", "AL", "AL-PRO", "anon-1", "1A", 45, (45,), allowed_days=(0,)
+    )
+    result = solve_weekly_timetable(
+        (lesson,), (), 540, 630, supports=(pt, al),
+    )
+    assert result.status == "feasible"
+    assert len(result.supports) == 2
+    a, b = result.supports
+    assert a.end <= b.start or b.end <= a.start
+
+    impossible = solve_weekly_timetable(
+        (lesson,), (), 540, 615, supports=(pt, al),
+    )
+    assert impossible.status == "infeasible"
+
+
+def test_existing_pt_al_session_counts_as_occupied_pupil_and_teacher_time() -> None:
+    lesson = LessonDemand("1A", "MAT", "MATH", 45, (45,), allowed_days=(0,))
+    support = SupportDemand(
+        "remaining", "PT", "PT-PRO", "anon-pupil", "1A",
+        45, (45,), allowed_days=(0,),
+    )
+    fixed = BusyInterval(
+        weekday=0, start=540, end=585,
+        teacher_id="PT-PRO", pupil_token="anon-pupil",
+    )
+    result = solve_weekly_timetable(
+        (lesson,), (fixed,), 540, 630, supports=(support,),
+    )
+    assert result.status == "feasible"
+    assert result.supports[0].start == 585
+
+
+def test_api_accepts_opaque_support_and_never_returns_participants(client: TestClient) -> None:
+    school_id = client.post("/schools", json={"name": "CEIP PT AL"}).json()["id"]
+    payload = _payload()
+    payload["supports"] = [
+        {
+            "request_id": "request-one",
+            "service": "PT",
+            "teacher_id": "PT-TEACHER",
+            "pupil_token": "request-opaque-student-token",
+            "group_id": "1A",
+            "weekly_minutes": 45,
+            "durations": [45],
+            "blocked_subjects": ["MAT"],
+            "allowed_days": [0, 1, 2],
+        }
+    ]
+    res = client.post(f"/schools/{school_id}/weekly-timetable/preview", json=payload)
+    assert res.status_code == 200
+    data = res.json()
+    assert data["status"] == "feasible"
+    assert data["preview_only"] is True
+    assert len(data["supports"]) == 1
+    assert data["supports"][0]["service"] == "PT"
+    assert "pupil_token" not in str(data)
+    assert "request-opaque-student-token" not in str(data)
+    assert client.get(f"/schools/{school_id}/day-plans").json() == []
+
+
+def test_api_rejects_unlinked_support_and_incorrect_minutes(client: TestClient) -> None:
+    school_id = client.post("/schools", json={"name": "CEIP Validación AL"}).json()["id"]
+    payload = _payload()
+    payload["supports"] = [{
+        "request_id": "r-al", "service": "AL", "teacher_id": "AL-PRO",
+        "pupil_token": "opaque-2", "group_id": "UNLINKED",
+        "weekly_minutes": 45, "durations": [60],
+    }]
+    response = client.post(f"/schools/{school_id}/weekly-timetable/preview", json=payload)
+    assert response.status_code == 422
+    payload["supports"][0]["durations"] = [45]
+    response = client.post(f"/schools/{school_id}/weekly-timetable/preview", json=payload)
+    assert response.status_code == 422
