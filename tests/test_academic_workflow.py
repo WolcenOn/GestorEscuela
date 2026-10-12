@@ -125,3 +125,32 @@ def test_academic_solver_only_loads_selected_weekday(client: TestClient) -> None
     substitutions = solved.json()["payload"]["solution"]["substitutions"]
     assert len(substitutions) == 1
     assert substitutions[0]["substitute_teacher_id"] == "P02"
+
+
+@pytest.mark.parametrize(
+    ("second_weekday", "expected_status"),
+    [(0, 422), (None, 422), (1, 200)],
+)
+def test_specialist_cannot_be_double_booked_across_classes(
+    client: TestClient, second_weekday: int | None, expected_status: int
+) -> None:
+    school = client.post("/schools", json={"name": "CEIP Sin Solapes"})
+    assert school.status_code == 201
+    payload = configuration()
+    groups = payload["groups"]
+    activities = payload["activities"]
+    assert isinstance(groups, list)
+    assert isinstance(activities, list)
+    groups.append({"id": "G2", "label": "2º A", "stage": "Primaria"})
+    # A specialist (or PT/AL professional) is shared by both classes.
+    activities[1]["teacher_id"] = "P01"
+    activities[1]["group_id"] = "G2"
+    activities[1]["weekday"] = second_weekday
+    result = client.put(
+        f"/schools/{school.json()['id']}/academic-configuration",
+        json=payload,
+    )
+    assert result.status_code == expected_status
+    if expected_status == 422:
+        assert "Teacher P01" in result.json()["detail"]
+        assert "slot S1" in result.json()["detail"]
