@@ -303,7 +303,10 @@ def solve_weekly_timetable(
 
     resources.constrain_travel(model, travel_minutes, travel_rules)
     known_rooms = {item.room_id for item in room_specs}
-    for demand in (*supports, *group_supports):
+    selected_demands: tuple[SupportDemand | GroupSupportDemand, ...] = (
+        *supports, *group_supports,
+    )
+    for demand in selected_demands:
         if demand.room_candidates and (
             demand.room_id or demand.location_id
             or any(candidate not in known_rooms for candidate in demand.room_candidates)
