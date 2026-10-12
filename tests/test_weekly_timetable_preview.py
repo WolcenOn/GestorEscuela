@@ -10,6 +10,7 @@ from sqlalchemy.pool import StaticPool
 
 from gestor_escuela.persistence.db import Base, get_session
 from gestor_escuela.solver.group_support import GroupParticipant, GroupSupportDemand
+from gestor_escuela.solver.weekly_diagnostics import explain_weekly_infeasible
 from gestor_escuela.solver.weekly_timetable import (
     BusyInterval,
     LessonDemand,
@@ -425,3 +426,78 @@ def test_api_refuses_duplicate_pupil_goals_in_multiple_groups(client: TestClient
         f"/schools/{school_id}/weekly-timetable/preview", json=payload,
     )
     assert response.status_code == 422
+
+
+def test_cross_class_pt_group_respects_each_pupils_blocked_subjects() -> None:
+    lessons = (
+        LessonDemand("1A", "MAT", "T-MAT-A", 45, (45,), allowed_days=(0,)),
+        LessonDemand("1B", "MAT", "T-MAT-B", 45, (45,), allowed_days=(0,)),
+    )
+    grouped = GroupSupportDemand(
+        "cross-class-pt", "PT", "PT-ONE", 45,
+        (
+            GroupParticipant("pupil-1a", "1A", 45, blocked_subjects=("MAT",)),
+            GroupParticipant("pupil-1b", "1B", 45),
+        ),
+        allowed_days=(0,),
+    )
+    result = solve_weekly_timetable(
+        lessons, (), 540, 630, group_supports=(grouped,),
+    )
+    assert result.status == "feasible"
+    session = result.group_supports[0]
+    assert len(session.participant_tokens) == 2
+    mat_1a = next(lesson for lesson in result.lessons if lesson.group_id == "1A")
+    assert mat_1a.end <= session.start or session.end <= mat_1a.start
+
+
+def test_diagnostics_show_overloaded_specialist_capacity_without_pupils() -> None:
+    lessons = (
+        LessonDemand("1A", "MAT", "P-SPECIAL", 105, (45, 60), allowed_days=(0, 1, 2)),
+    )
+    busy = tuple(
+        BusyInterval(day, 540, 705, teacher_id="P-SPECIAL") for day in range(5)
+    )
+    result = solve_weekly_timetable(lessons, busy, 540, 720)
+    assert result.status == "infeasible"
+    reasons = explain_weekly_infeasible(lessons, (), (), busy, 540, 720)
+    assert any("1A / MAT" in reason and "105 min" in reason for reason in reasons)
+    assert any("Profesional P-SPECIAL" in reason for reason in reasons)
+    assert "pupil_token" not in str(reasons)
+
+
+def test_diagnostics_flag_overlapping_existing_specialist_blocks() -> None:
+    lessons = (LessonDemand("1A", "MAT", "P1", 45, (45,), allowed_days=(0,)),)
+    busy = (
+        BusyInterval(0, 540, 600, teacher_id="P1"),
+        BusyInterval(0, 570, 630, teacher_id="P1"),
+    )
+    result = solve_weekly_timetable(lessons, busy, 540, 660)
+    assert result.status == "infeasible"
+    reasons = explain_weekly_infeasible(lessons, (), (), busy, 540, 660)
+    assert any("bloqueos fijos" in reason and "P1" in reason for reason in reasons)
+
+
+def test_preview_api_returns_concrete_reasons_for_teacher_overload(
+    client: TestClient,
+) -> None:
+    school_id = client.post("/schools", json={"name": "CEIP Diagnosticos"}).json()["id"]
+    payload = _payload()
+    payload["busy"] = [
+        {
+            "weekday": weekday,
+            "start_time": "09:00",
+            "end_time": "11:45",
+            "teacher_id": "P1",
+        }
+        for weekday in range(5)
+    ]
+    response = client.post(
+        f"/schools/{school_id}/weekly-timetable/preview", json=payload
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "infeasible"
+    assert any("Profesional P1" in reason for reason in data["reasons"])
+    assert data["preview_only"] is True
+    assert client.get(f"/schools/{school_id}/day-plans").json() == []
