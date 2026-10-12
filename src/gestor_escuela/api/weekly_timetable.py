@@ -20,7 +20,11 @@ from gestor_escuela.solver.group_support import (
 )
 from gestor_escuela.solver.weekly_diagnostics import explain_weekly_infeasible
 from gestor_escuela.solver.weekly_resources import TravelRule
-from gestor_escuela.solver.weekly_rooms import RoomSpec, RoomWindow
+from gestor_escuela.solver.weekly_rooms import (
+    ROOM_FEATURES,
+    RoomSpec,
+    RoomWindow,
+)
 from gestor_escuela.solver.weekly_timetable import (
     BusyInterval,
     LessonDemand,
@@ -118,6 +122,7 @@ class SupportDemandInput(BaseModel):
     location_id: str | None = Field(default=None, min_length=1, max_length=64)
     room_id: str | None = Field(default=None, min_length=1, max_length=64)
     room_candidates: list[str] = Field(default_factory=list, max_length=8)
+    required_features: list[str] = Field(default_factory=list, max_length=5)
 
     @model_validator(mode="after")
     def check_sessions(self) -> SupportDemandInput:
@@ -154,6 +159,7 @@ class GroupSupportInput(BaseModel):
     location_id: str | None = Field(default=None, min_length=1, max_length=64)
     room_id: str | None = Field(default=None, min_length=1, max_length=64)
     room_candidates: list[str] = Field(default_factory=list, max_length=8)
+    required_features: list[str] = Field(default_factory=list, max_length=5)
 
     @model_validator(mode="after")
     def validate_group(self) -> GroupSupportInput:
@@ -204,9 +210,14 @@ class RoomSpecInput(BaseModel):
     room_id: str = Field(min_length=1, max_length=64)
     capacity: int = Field(ge=1, le=30)
     windows: list[RoomWindowInput] = Field(default_factory=list, max_length=30)
+    features: list[str] = Field(default_factory=list, max_length=5)
 
     @model_validator(mode="after")
     def check_windows(self) -> RoomSpecInput:
+        if len(set(self.features)) != len(self.features):
+            raise ValueError("Las características de sala no pueden repetirse")
+        if any(feature not in ROOM_FEATURES for feature in self.features):
+            raise ValueError("La sala contiene características no admitidas")
         for weekday in range(5):
             intervals = sorted(
                 (item.start_time, item.end_time)
@@ -248,6 +259,10 @@ class WeeklyPreviewInput(BaseModel):
             *self.supports, *self.group_supports,
         ]
         for need in needs:
+            if len(set(need.required_features)) != len(need.required_features):
+                raise ValueError("Los requisitos de equipamiento no pueden repetirse")
+            if any(feature not in ROOM_FEATURES for feature in need.required_features):
+                raise ValueError("El apoyo contiene requisitos de sala no admitidos")
             if len(set(need.room_candidates)) != len(need.room_candidates):
                 raise ValueError("Las salas candidatas de un apoyo no pueden repetirse")
             if need.room_candidates and (
@@ -365,6 +380,7 @@ def preview_weekly_timetable(
             location_id=item.location_id,
             room_id=item.room_id,
             room_candidates=tuple(item.room_candidates),
+            required_features=tuple(item.required_features),
         )
         for item in payload.supports
     )
@@ -390,6 +406,7 @@ def preview_weekly_timetable(
             location_id=group.location_id,
             room_id=group.room_id,
             room_candidates=tuple(group.room_candidates),
+            required_features=tuple(group.required_features),
         )
         for group in payload.group_supports
     )
@@ -411,6 +428,7 @@ def preview_weekly_timetable(
                 RoomSpec(
                     room_id=room.room_id,
                     capacity=room.capacity,
+                    features=tuple(room.features),
                     windows=tuple(
                         RoomWindow(
                             window.weekday,
