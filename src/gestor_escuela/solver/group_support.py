@@ -17,7 +17,7 @@ from gestor_escuela.solver.support_preferences import (
     add_extraction_preferences,
 )
 from gestor_escuela.solver.weekly_resources import WeeklyResources
-from gestor_escuela.solver.weekly_rooms import WeeklyRooms, allocate_candidate_room
+from gestor_escuela.solver.weekly_rooms import RoomSpec, WeeklyRooms, allocate_candidate_room
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,6 +42,7 @@ class GroupSupportDemand:
     location_id: str | None = None
     room_id: str | None = None
     room_candidates: tuple[str, ...] = ()
+    required_features: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,6 +77,7 @@ def add_group_supports(
     day_end: int,
     resources: WeeklyResources,
     rooms: WeeklyRooms,
+    room_catalog: dict[str, RoomSpec],
 ) -> list[_GroupSession]:
     selections: list[_GroupSession] = []
     for index, group in enumerate(groups):
@@ -169,7 +171,14 @@ def add_group_supports(
             chosen = (
                 allocate_candidate_room(
                     model, rooms, resources, group.teacher_id,
-                    days, start, duration // 15, group.room_candidates,
+                    days, start, duration // 15,
+                    tuple(
+                        room_id for room_id in group.room_candidates
+                        if room_id in room_catalog
+                        and set(group.required_features).issubset(
+                            room_catalog[room_id].features
+                        )
+                    ),
                     attendance_count, f"group_{index}_{slot}",
                 )
                 if group.room_candidates else {}
