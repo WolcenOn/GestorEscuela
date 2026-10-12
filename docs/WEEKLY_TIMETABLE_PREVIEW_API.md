@@ -82,9 +82,10 @@ Los de grupo se reservan para la actividad que ocupa la clase completa
 
 ## Apoyos PT/AL compartidos en grupos ya existentes
 
-Nueva propiedad opcional `group_supports` del mismo POST. No busca nuevos
-grupos automáticamente: el frontend utiliza grupos de apoyo que el centro
-ya ha definido y calcula el déficit individual descontando sesiones previas.
+Nueva propiedad opcional `group_supports` del mismo POST. El frontend
+puede utilizar grupos de apoyo que el centro ya ha definido **o generar
+agrupaciones virtuales temporales**, sin guardar nuevos grupos en el centro.
+En ambos casos calcula el déficit individual descontando sesiones previas.
 
 ```json
 {
@@ -132,6 +133,29 @@ propuesta total. Grupos que no cumplen estas condiciones siguen pendientes
 de ajuste manual. Las sesiones existentes se descuentan por alumno,
 considerando `excludedStudentIds` en la configuración local.
 
+### Propuestas automáticas conservadoras (frontend)
+
+`Horario-PT-AL/js/auto-support-groups.js` propone combinar **asignaciones
+PT/AL individuales existentes** cuando comparten profesional, servicio,
+curso, clase y prohibiciones de extracción. Respeta las preferencias blandas
+de cada alumno por separado y descuenta previamente los apoyos programados.
+
+- Elige duraciones comunes de 45, 30 o 15 minutos, sin exceder los objetivos
+  individuales; máximo ocho participantes y diez sesiones semanales por
+  agrupación automática (dos al día de lunes a viernes).
+- Los alumnos sin profesional asignado, de distintos cursos o clases, o con
+  prohibiciones de extracción incompatibles **no se agrupan** de momento.
+- La petición utiliza los mismos tokens efímeros y no transmite nombres,
+  diagnósticos ni IDs originales de estudiantes.
+- Si la propuesta agrupada resulta `infeasible`, el cliente realiza una
+  **segunda vista previa con las sesiones individuales**. El resultado visible
+  corresponde a esa segunda simulación, que puede ser `feasible`,
+  `infeasible` o `unknown`. No se presenta un fracaso de agrupación opcional
+  como prueba de inviabilidad de todo el horario.
+- **No se guarda ni se aplica automáticamente ningún grupo**. Es un piloto
+  no destructivo, pendiente de interfaz de aceptación, grupos entre aulas
+  y formación desde alumnado sin asignaciones previas.
+
 ## Límites explícitos antes de producción
 
 1. **No** distribuye por sí solo la carga curricular a distintas duraciones:
@@ -141,8 +165,10 @@ considerando `excludedStudentIds` en la configuración local.
    objetivo de minutos y exista profesor compatible. Descuenta los minutos
    ya programados y respeta bloqueos explícitos `no-salir` y materias
    cuya extracción esté prohibida. **No** genera todavía sesiones
-   de formación **automática de nuevos grupos**, divisiones arbitrarias
-   entre distintos tamaños de sesión o tolerancias de exceso. Sí se optimizan
+   de creación persistente de grupos, agrupaciones entre diferentes
+   clases/docentes, divisiones arbitrarias entre distintos tamaños de sesión
+   o tolerancias de exceso. Existen **propuestas virtuales conservadoras**
+   a partir de asignaciones individuales, sin modificar datos. Sí se optimizan
    las preferencias blandas de extracción por materia para los grupos
    ya configurados cuando cumplen las condiciones del piloto. Cuando se omiten
    necesidades incompatibles se debe avisar.
