@@ -68,8 +68,8 @@ class TimeSlotConfig(BaseModel):
     label: str = Field(min_length=1, max_length=64)
     order: int = Field(ge=1)
     # Legacy slots may keep both times unset until the school configures them.
-    start_time: str | None = Field(default=None, pattern=r"^(?:[01]\\d|2[0-3]):[0-5]\\d$")
-    end_time: str | None = Field(default=None, pattern=r"^(?:[01]\\d|2[0-3]):[0-5]\\d$")
+    start_time: str | None = Field(default=None, pattern=r"^(?:[01]\d|2[0-3]):[0-5]\d$")
+    end_time: str | None = Field(default=None, pattern=r"^(?:[01]\d|2[0-3]):[0-5]\d$")
 
     @model_validator(mode="after")
     def validate_interval(self) -> TimeSlotConfig:
