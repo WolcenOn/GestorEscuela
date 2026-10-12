@@ -178,6 +178,40 @@ Nunca se incluyen tokens de alumnos ni diagnósticos clínicos en las razones.
 un conflicto puede depender de combinaciones entre muchas restricciones.
 El estado `unknown` significa búsqueda inconclusa, no inviabilidad demostrada.
 
+## Aulas compartidas y especialistas itinerantes
+
+La vista previa acepta restricciones **opcionales** de recursos y trayectos:
+
+- `travel_minutes` en el cuerpo principal (0, 15, 30, 45 o 60).
+  Predeterminado **0** para preservar configuraciones antiguas.
+- `location_id` en una materia, apoyo PT/AL, grupo de apoyo o bloqueo fijo.
+  Se usa únicamente para verificar traslados de un mismo profesional.
+  Cuando dos actividades consecutivas tienen *ubicaciones conocidas y
+  distintas*, el motor exige el intervalo completo de traslado entre ellas.
+  No estima distancias geográficas ni diferencia trayectos por dirección.
+- `room_id` en esas actividades: **dos actividades no pueden ocupar la
+  misma sala explícita al mismo tiempo**, aunque tengan profesores distintos.
+  También se aceptan bloqueos con solo `room_id`, para reservar una sala
+  sin identificar personal ni alumnos.
+- Cuando la ubicación no se proporciona, no se inventa y el motor
+  **no aplica** desplazamiento hacia o desde esa actividad. `room_id` por
+  sí solo tampoco crea una ubicación para cálculos de viaje.
+- Las duraciones y los traslados usan una rejilla de 15 minutos. Una
+  actividad en la misma ubicación no necesita margen adicional; un cambio
+  de ubicación en actividades del mismo profesor sí.
+
+`Horario-PT-AL` incorpora en «Planificación del centro → Parámetros de
+generación global» el tiempo opcional de traslado y la sala PT/AL compartida.
+Cuando se activa el traslado, los identificadores de clase se emplean como
+**ubicaciones diferenciadas de aula**, no como distancias reales. Cuando
+se indica una única sala de apoyo, **todos los apoyos y sus sesiones ya
+programadas** enviados a esta vista previa se consideran ocupantes
+exclusivos de esa sala. Sin sala configurada, no se presupone cuál utilizan.
+
+No existe todavía optimización de rutas entre edificios, aforo de salas
+de más de una sesión ni sala individual por alumno. La propuesta es siempre
+informativa y no modifica configuración académica ni base de datos.
+
 ## Límites explícitos antes de producción
 
 1. **No** distribuye por sí solo la carga curricular a distintas duraciones:
