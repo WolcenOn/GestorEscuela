@@ -15,6 +15,24 @@ from ortools.sat.python import cp_model
 from gestor_escuela.solver.weekly_resources import WeeklyResources
 
 
+# Non-sensitive room equipment/accessibility characteristics. Never send
+# diagnoses, pupil attributes, or free-text descriptions as room requirements.
+ROOM_FEATURES = frozenset({
+    "acceso_sin_escalones",
+    "mesa_regulable",
+    "aislamiento_acustico",
+    "material_logopedico",
+    "pizarra_digital",
+})
+
+
+def validate_room_features(features: tuple[str, ...]) -> None:
+    if len(features) > len(ROOM_FEATURES) or len(set(features)) != len(features):
+        raise ValueError("Las características de sala están repetidas o exceden el límite.")
+    if any(feature not in ROOM_FEATURES for feature in features):
+        raise ValueError("La sala utiliza una característica no admitida.")
+
+
 @dataclass(frozen=True, slots=True)
 class RoomWindow:
     weekday: int
@@ -27,6 +45,7 @@ class RoomSpec:
     room_id: str
     capacity: int
     windows: tuple[RoomWindow, ...] = ()
+    features: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,6 +82,7 @@ class WeeklyRooms:
         for spec in specs:
             if not spec.room_id or not 1 <= spec.capacity <= 30:
                 raise ValueError("Cada sala necesita identificador y aforo de 1 a 30.")
+            validate_room_features(spec.features)
             by_day: dict[int, list[tuple[int, int]]] = defaultdict(list)
             for window in spec.windows:
                 if (
