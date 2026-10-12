@@ -137,14 +137,18 @@ considerando `excludedStudentIds` en la configuración local.
 
 `Horario-PT-AL/js/auto-support-groups.js` propone combinar **asignaciones
 PT/AL individuales existentes** cuando comparten profesional, servicio,
-curso, clase y prohibiciones de extracción. Respeta las preferencias blandas
-de cada alumno por separado y descuenta previamente los apoyos programados.
+curso y prohibiciones de extracción compatibles. **Pueden proceder
+de diferentes clases del mismo curso**: el motor comprueba las restricciones
+de extracción de cada alumno contra las materias de su propia clase. Respeta
+las preferencias blandas de cada alumno y descuenta los apoyos programados.
 
 - Elige duraciones comunes de 45, 30 o 15 minutos, sin exceder los objetivos
   individuales; máximo ocho participantes y diez sesiones semanales por
   agrupación automática (dos al día de lunes a viernes).
-- Los alumnos sin profesional asignado, de distintos cursos o clases, o con
+- Los alumnos sin profesional asignado, de **distintos cursos**, o con
   prohibiciones de extracción incompatibles **no se agrupan** de momento.
+  Los alumnos de diferentes clases del mismo curso sí pueden coincidir si
+  tienen el mismo profesional y se satisfacen sus reglas individuales.
 - La petición utiliza los mismos tokens efímeros y no transmite nombres,
   diagnósticos ni IDs originales de estudiantes.
 - Si la propuesta agrupada resulta `infeasible`, el cliente realiza una
@@ -153,8 +157,26 @@ de cada alumno por separado y descuenta previamente los apoyos programados.
   `infeasible` o `unknown`. No se presenta un fracaso de agrupación opcional
   como prueba de inviabilidad de todo el horario.
 - **No se guarda ni se aplica automáticamente ningún grupo**. Es un piloto
-  no destructivo, pendiente de interfaz de aceptación, grupos entre aulas
-  y formación desde alumnado sin asignaciones previas.
+  no destructivo, pendiente de interfaz de aceptación, definición de
+  espacios compartidos y formación desde alumnado sin asignaciones previas.
+
+### Diagnósticos explicables de inviabilidad
+
+Si CP-SAT **demuestra** que una propuesta semanal es inviable, el backend
+puede añadir causas concretas en `reasons`, calculadas únicamente a partir
+de restricciones duras comprobables:
+
+- carga de una materia superior a los minutos disponibles de su profesor o
+  grupo en los días/franjas permitidos;
+- carga total de un especialista (docencia, PT y AL) mayor que su capacidad
+  libre semanal;
+- exceso de minutos curriculares de una clase respecto a su jornada;
+- solapamiento de bloqueos fijos ya presentes para un profesor o clase.
+
+Nunca se incluyen tokens de alumnos ni diagnósticos clínicos en las razones.
+**La ausencia de una razón concreta no implica que exista una solución**:
+un conflicto puede depender de combinaciones entre muchas restricciones.
+El estado `unknown` significa búsqueda inconclusa, no inviabilidad demostrada.
 
 ## Límites explícitos antes de producción
 
@@ -166,7 +188,7 @@ de cada alumno por separado y descuenta previamente los apoyos programados.
    ya programados y respeta bloqueos explícitos `no-salir` y materias
    cuya extracción esté prohibida. **No** genera todavía sesiones
    de creación persistente de grupos, agrupaciones entre diferentes
-   clases/docentes, divisiones arbitrarias entre distintos tamaños de sesión
+   cursos/docentes, divisiones arbitrarias entre distintos tamaños de sesión
    o tolerancias de exceso. Existen **propuestas virtuales conservadoras**
    a partir de asignaciones individuales, sin modificar datos. Sí se optimizan
    las preferencias blandas de extracción por materia para los grupos
