@@ -306,10 +306,10 @@ def solve_weekly_timetable(
     selected_demands: tuple[SupportDemand | GroupSupportDemand, ...] = (
         *supports, *group_supports,
     )
-    for demand in selected_demands:
-        if demand.room_candidates and (
-            demand.room_id or demand.location_id
-            or any(candidate not in known_rooms for candidate in demand.room_candidates)
+    for need in selected_demands:
+        if need.room_candidates and (
+            need.room_id or need.location_id
+            or any(candidate not in known_rooms for candidate in need.room_candidates)
         ):
             raise ValueError("La selección automática requiere salas configuradas sin aula fija.")
     rooms.constrain(model, room_specs, start, end)
