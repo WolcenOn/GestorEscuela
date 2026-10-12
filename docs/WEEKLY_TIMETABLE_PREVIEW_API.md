@@ -16,6 +16,16 @@ Frontend: `WolcenOn/Horario-PT-AL`, rama `integracion-gestor-escuela`.
 - CP-SAT respeta restricciones duras: ningún solapamiento de docente o
   grupo de clase, carga semanal exacta por materia, duración exacta de cada
   sesión, días admitidos, disponibilidad horaria, bloqueos y máximo diario.
+- Nuevo atributo opcional `supports`: demandas PT/AL individuales pendientes,
+  con el total semanal **restante** y duraciones ya particionadas. No programa
+  apoyos adicionales para grupos de alumnos mixtos con objetivos diferentes.
+- Cada apoyo lleva `pupil_token`, UUID aleatorio **por petición**, compartido
+  únicamente entre PT y AL de ese alumno en ese cálculo. No se mandan los IDs
+  originales ni nombres de alumnos. El backend no incluye este token en la
+  respuesta; devuelve solo el `request_id` y el horario propuesto.
+- El motor bloquea dos apoyos simultáneos del mismo alumno, dos clases/apoyos
+  del mismo profesional y extracciones durante materias presentes en
+  `blocked_subjects`. Las asignaturas restantes permiten extracción parcial.
 - Las preferencias de día se optimizan pero **no** se vuelven bloqueos.
 - Estados: `feasible` (propuesta), `infeasible` (se demostró incompatible)
   y `unknown` (límite de búsqueda u otro estado no concluyente).
@@ -74,9 +84,14 @@ Los de grupo se reservan para la actividad que ocupa la clase completa
 
 1. **No** distribuye por sí solo la carga curricular a distintas duraciones:
    recibe una lista de sesiones ya calculada.
-2. **No** genera sesiones PT ni AL para alumnos ni comprueba la
-   coincidencia individual del alumnado con asignaturas; esta fase solo
-   bloquea los profesionales que ya tienen apoyos programados.
+2. **Sí** propone ahora el déficit semanal de apoyos **individuales**
+   de un solo alumno, siempre que su grupo PT/AL sea único, se disponga de
+   objetivo de minutos y exista profesor compatible. Descuenta los minutos
+   ya programados y respeta bloqueos explícitos `no-salir` y materias
+   cuya extracción esté prohibida. **No** genera todavía sesiones
+   agrupadas con participantes mixtos, calcula tolerancias de exceso,
+   ni optimiza las preferencias blandas por materia ("evitar" frente
+   a "preferente"). Cuando omite necesidades grupales debe avisar.
 3. **No** resuelve la planificación de actividades del centro que aún no
    tienen franja concreta, ni recursos compartidos, desplazamientos o
    reuniones/funciones sin asignación temporal. El frontend sí puede enviar
@@ -87,8 +102,12 @@ Los de grupo se reservan para la actividad que ocupa la clase completa
    consulta ni guarda información sobre menores en el backend.
 6. La rejilla provisional exige múltiplos de 15 minutos. Las franjas
    tradicionales sin horario explícito siguen funcionando por separado.
-7. Los límites de 150 sesiones convierten esto en una validación piloto
-   de alcance acotado, no en un motor capaz de planificar todo un colegio.
+7. Los límites conjuntos de 150 sesiones y 100 demandas entre materias
+   y apoyos convierten esto en una validación piloto de alcance acotado,
+   no en un motor capaz de planificar todo un colegio.
+8. Los tokens anónimos de alumnos se generan en cada petición por el navegador
+   mediante una fuente criptográfica. No sustituyen el cifrado de los datos
+   reales del proyecto o de IndexedDB ni justifican almacenar las demandas.
 
 ## Siguientes etapas
 
