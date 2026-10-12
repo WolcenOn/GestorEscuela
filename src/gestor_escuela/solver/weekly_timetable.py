@@ -1,0 +1,168 @@
+"""Non-destructive CP-SAT timetable preview from explicit curriculum session lengths.
+
+All intervals use 15-minute integers to avoid floating-point drift. A hard
+constraint must never be relaxed to manufacture a feasible school timetable.
+This engine does not yet schedule individual PT/AL pupils or shared rooms.
+"""
+
+from __future__ import annotations
+
+from collections import defaultdict
+from dataclasses import dataclass, field
+
+from ortools.sat.python import cp_model
+
+
+@dataclass(frozen=True, slots=True)
+class LessonDemand:
+    group_id: str
+    subject_id: str
+    teacher_id: str
+    weekly_minutes: int
+    durations: tuple[int, ...]
+    allowed_days: tuple[int, ...] = (0, 1, 2, 3, 4)
+    preferred_days: tuple[int, ...] = ()
+    earliest_start: int | None = None
+    latest_end: int | None = None
+    max_sessions_per_day: int = 2
+
+
+@dataclass(frozen=True, slots=True)
+class BusyInterval:
+    weekday: int
+    start: int
+    end: int
+    teacher_id: str | None = None
+    group_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PlacedLesson:
+    group_id: str
+    subject_id: str
+    teacher_id: str
+    weekday: int
+    start: int
+    end: int
+
+
+@dataclass(frozen=True, slots=True)
+class TimetablePreview:
+    status: str
+    lessons: tuple[PlacedLesson, ...] = ()
+    solver_status: str = ""
+    wall_time_seconds: float = 0.0
+    reasons: tuple[str, ...] = ()
+
+
+def solve_weekly_timetable(
+    demands: tuple[LessonDemand, ...],
+    busy: tuple[BusyInterval, ...],
+    start: int,
+    end: int,
+    max_time_seconds: float = 5.0,
+) -> TimetablePreview:
+    """Place explicit durations exactly; never invent a remainder or miss minutes."""
+    if start >= end or any(value % 15 for value in (start, end)):
+        raise ValueError("Jornada inválida: se exige una rejilla de 15 minutos.")
+    if not 0 < max_time_seconds <= 15:
+        raise ValueError("El límite de búsqueda debe estar entre 0 y 15 segundos.")
+
+    model = cp_model.CpModel()
+    intervals: dict[tuple[str, str, int], list[cp_model.IntervalVar]] = defaultdict(list)
+    daily_demands: dict[tuple[int, int], list[cp_model.IntVar]] = defaultdict(list)
+    decisions: list[tuple[LessonDemand, int, cp_model.IntVar, dict[int, cp_model.IntVar]]] = []
+    soft_terms: list[cp_model.LinearExpr] = []
+
+    for index, demand in enumerate(demands):
+        if sum(demand.durations) != demand.weekly_minutes:
+            raise ValueError(
+                f"{demand.group_id}/{demand.subject_id}: las sesiones no suman "
+                "la carga curricular semanal."
+            )
+        for session_index, duration in enumerate(demand.durations):
+            if duration <= 0 or duration > 180 or duration % 15:
+                raise ValueError("Cada sesión debe durar entre 15 y 180 minutos, en pasos de 15.")
+            day_start = max(start, demand.earliest_start or start)
+            day_end = min(end, demand.latest_end or end)
+            if day_start % 15 or day_end % 15:
+                raise ValueError("Las ventanas docentes deben usar la rejilla de 15 minutos.")
+            if day_end - day_start < duration:
+                return TimetablePreview(
+                    status="infeasible",
+                    reasons=(f"{demand.group_id}/{demand.subject_id}: "
+                             f"no cabe una sesión de {duration} min en la ventana.",),
+                )
+            first_tick = day_start // 15
+            last_tick = (day_end - duration) // 15
+            duration_ticks = duration // 15
+            start_var = model.new_int_var(first_tick, last_tick, f"start_{index}_{session_index}")
+            days: dict[int, cp_model.IntVar] = {}
+            for weekday in demand.allowed_days:
+                present = model.new_bool_var(f"day_{index}_{session_index}_{weekday}")
+                interval = model.new_optional_fixed_size_interval_var(
+                    start_var, duration_ticks, present,
+                    f"lesson_{index}_{session_index}_{weekday}",
+                )
+                intervals[("teacher", demand.teacher_id, weekday)].append(interval)
+                intervals[("group", demand.group_id, weekday)].append(interval)
+                daily_demands[(index, weekday)].append(present)
+                days[weekday] = present
+                if demand.preferred_days and weekday not in demand.preferred_days:
+                    soft_terms.append(60 * present)
+            model.add_exactly_one(days.values())
+            decisions.append((demand, duration, start_var, days))
+            soft_terms.append(start_var - first_tick)
+
+    for index, demand in enumerate(demands):
+        for weekday in demand.allowed_days:
+            model.add(sum(daily_demands[(index, weekday)]) <= demand.max_sessions_per_day)
+
+    for index, block in enumerate(busy):
+        if block.start >= block.end:
+            raise ValueError("Un bloqueo debe terminar después de su inicio.")
+        fixed = model.new_fixed_size_interval_var(
+            block.start // 15,
+            (block.end - block.start) // 15,
+            f"blocked_{index}",
+        )
+        if block.teacher_id:
+            intervals[("teacher", block.teacher_id, block.weekday)].append(fixed)
+        if block.group_id:
+            intervals[("group", block.group_id, block.weekday)].append(fixed)
+
+    for entries in intervals.values():
+        if len(entries) > 1:
+            model.add_no_overlap(entries)
+
+    if soft_terms:
+        model.minimize(sum(soft_terms))
+
+    solver = cp_model.CpSolver()
+    solver.parameters.max_time_in_seconds = max_time_seconds
+    solver.parameters.num_search_workers = 1
+    status = solver.solve(model)
+    name = solver.status_name(status)
+    if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+        if status == cp_model.INFEASIBLE:
+            return TimetablePreview(
+                "infeasible", solver_status=name,
+                wall_time_seconds=solver.wall_time,
+                reasons=("No existe una distribución que cumpla todas las restricciones duras.",),
+            )
+        return TimetablePreview(
+            "unknown", solver_status=name,
+            wall_time_seconds=solver.wall_time,
+            reasons=("La búsqueda terminó sin solución demostrada; no equivale a inviable.",),
+        )
+
+    lessons = []
+    for demand, duration, start_var, days in decisions:
+        weekday = next(day for day, present in days.items() if solver.value(present))
+        start_minute = solver.value(start_var) * 15
+        lessons.append(PlacedLesson(
+            demand.group_id, demand.subject_id, demand.teacher_id,
+            weekday, start_minute, start_minute + duration,
+        ))
+    lessons.sort(key=lambda item: (item.weekday, item.start, item.group_id, item.subject_id))
+    return TimetablePreview("feasible", tuple(lessons), name, solver.wall_time)
