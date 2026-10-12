@@ -8,7 +8,7 @@ This engine does not yet schedule individual PT/AL pupils or shared rooms.
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from ortools.sat.python import cp_model
 
