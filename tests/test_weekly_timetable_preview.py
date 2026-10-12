@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Generator
-from datetime import date
 
 import pytest
 from fastapi.testclient import TestClient
@@ -57,8 +56,14 @@ def test_two_courses_use_distinct_durations_without_specialist_collisions() -> N
     assert result.status == "feasible"
     assert sum(item.end - item.start for item in result.lessons if item.group_id == "1A") == 105
     assert sum(item.end - item.start for item in result.lessons if item.group_id == "2A") == 180
-    assert sorted(item.end - item.start for item in result.lessons if item.group_id == "1A") == [45, 60]
-    assert sorted(item.end - item.start for item in result.lessons if item.group_id == "2A") == [90, 90]
+    first_durations = sorted(
+        item.end - item.start for item in result.lessons if item.group_id == "1A"
+    )
+    second_durations = sorted(
+        item.end - item.start for item in result.lessons if item.group_id == "2A"
+    )
+    assert first_durations == [45, 60]
+    assert second_durations == [90, 90]
     for index, first_lesson in enumerate(result.lessons):
         for second_lesson in result.lessons[index + 1:]:
             if first_lesson.weekday != second_lesson.weekday:
