@@ -182,7 +182,9 @@ def solve_weekly_timetable(
                 intervals[("pupil", support.pupil_token, weekday)].append(interval)
                 daily_demands[(len(demands) + index, weekday)].append(present)
                 for subject in support.blocked_subjects:
-                    for class_interval in class_intervals.get((support.group_id, subject, weekday), ()):
+                    for class_interval in class_intervals.get(
+                        (support.group_id, subject, weekday), ()
+                    ):
                         model.add_no_overlap([interval, class_interval])
                 by_day[weekday] = present
             model.add_exactly_one(by_day.values())
