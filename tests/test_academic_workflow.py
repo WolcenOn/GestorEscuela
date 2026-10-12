@@ -265,3 +265,44 @@ def test_legacy_slots_remain_valid_without_times(client: TestClient) -> None:
     assert read.status_code == 200
     assert read.json()["time_slots"][0]["start_time"] is None
     assert read.json()["time_slots"][0]["end_time"] is None
+
+
+def test_academic_solver_does_not_use_busy_overlapping_specialist(
+    client: TestClient,
+) -> None:
+    school = client.post("/schools", json={"name": "CEIP Especialistas"})
+    assert school.status_code == 201
+    school_id = school.json()["id"]
+    payload = configuration()
+    payload["groups"].append({"id": "G2", "label": "2º A", "stage": "Primaria"})
+    payload["time_slots"][0].update({"start_time": "09:00", "end_time": "10:30"})
+    payload["time_slots"].append(
+        {
+            "id": "S2", "label": "10:00-10:45", "order": 2,
+            "start_time": "10:00", "end_time": "10:45",
+        }
+    )
+    payload["teachers"].append(
+        {
+            "id": "P03", "display_name": "Apoyo libre",
+            "profile": "SUPPORT", "can_cover_groups": ["G1"],
+        }
+    )
+    payload["activities"][1].update(
+        {"weekday": 0, "slot_id": "S2", "group_id": "G2"}
+    )
+    assert client.put(
+        f"/schools/{school_id}/academic-configuration", json=payload
+    ).status_code == 200
+    plan = client.post(
+        f"/schools/{school_id}/day-plans", json={"plan_date": "2026-08-17"}
+    )
+    assert plan.status_code == 201
+    result = client.post(
+        f"/schools/{school_id}/day-plans/{plan.json()['id']}/solve-academic",
+        json={"absences": [{"teacher_id": "P01", "slot_ids": ["S1"]}]},
+    )
+    assert result.status_code == 200
+    substitutions = result.json()["payload"]["solution"]["substitutions"]
+    assert len(substitutions) == 1
+    assert substitutions[0]["substitute_teacher_id"] == "P03"
