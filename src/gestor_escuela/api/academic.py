@@ -77,26 +77,54 @@ def _validate_configuration(payload: SchoolConfigurationPut) -> None:
                 detail=f"Teacher {teacher.id} references unknown groups: {sorted(unknown_groups)}",
             )
 
-    # A specialist/PT/AL professional cannot teach two different classes
-    # during the same slot. A weekday=None activity applies every school day.
-    # Validate at import time so the solver does not silently overwrite one
-    # activity when indexing teacher/slot assignments.
-    occupied_teacher_slots: dict[tuple[int, str, str], str] = {}
+    # Compare actual time intervals when supplied, not only slot identifiers.
+    # Legacy slots without start/end remain supported and only collide if their
+    # IDs are identical. Adjacent intervals (end == next start) are allowed.
+    slot_intervals: dict[str, tuple[int, int]] = {}
+    for slot in payload.time_slots:
+        if slot.start_time is not None and slot.end_time is not None:
+            start_h, start_m = (int(part) for part in slot.start_time.split(":"))
+            end_h, end_m = (int(part) for part in slot.end_time.split(":"))
+            slot_intervals[slot.id] = (start_h * 60 + start_m, end_h * 60 + end_m)
+
+    def slots_overlap(first: str, second: str) -> bool:
+        if first == second:
+            return True
+        a = slot_intervals.get(first)
+        b = slot_intervals.get(second)
+        return a is not None and b is not None and a[0] < b[1] and b[0] < a[1]
+
+    teacher_agenda: dict[tuple[int, str], list[tuple[str, str]]] = defaultdict(list)
+    group_agenda: dict[tuple[int, str], list[tuple[str, str]]] = defaultdict(list)
     for activity in payload.activities:
         weekdays = range(5) if activity.weekday is None else (activity.weekday,)
         for weekday in weekdays:
-            key = (weekday, activity.slot_id, activity.teacher_id)
-            existing_id = occupied_teacher_slots.get(key)
-            if existing_id is not None:
-                raise HTTPException(
-                    status_code=422,
-                    detail=(
-                        f"Teacher {activity.teacher_id} has overlapping activities "
-                        f"{existing_id} and {activity.id} on weekday {weekday}, "
-                        f"slot {activity.slot_id}"
-                    ),
-                )
-            occupied_teacher_slots[key] = activity.id
+            teacher_key = (weekday, activity.teacher_id)
+            for previous_id, previous_slot in teacher_agenda[teacher_key]:
+                if slots_overlap(previous_slot, activity.slot_id):
+                    raise HTTPException(
+                        status_code=422,
+                        detail=(
+                            f"Teacher {activity.teacher_id} has overlapping activities "
+                            f"{previous_id} and {activity.id} on weekday {weekday}, "
+                            f"slot {activity.slot_id} (other slot {previous_slot})"
+                        ),
+                    )
+            teacher_agenda[teacher_key].append((activity.id, activity.slot_id))
+
+            if activity.group_id is not None:
+                group_key = (weekday, activity.group_id)
+                for previous_id, previous_slot in group_agenda[group_key]:
+                    if slots_overlap(previous_slot, activity.slot_id):
+                        raise HTTPException(
+                            status_code=422,
+                            detail=(
+                                f"Group {activity.group_id} has overlapping activities "
+                                f"{previous_id} and {activity.id} on weekday {weekday}, "
+                                f"slots {previous_slot} and {activity.slot_id}"
+                            ),
+                        )
+                group_agenda[group_key].append((activity.id, activity.slot_id))
 
     for activity in payload.activities:
         if activity.slot_id not in slot_ids:
@@ -156,6 +184,8 @@ def put_academic_configuration(
                 external_id=item.id,
                 label=item.label,
                 slot_order=item.order,
+                start_time=item.start_time,
+                end_time=item.end_time,
             )
             for item in payload.time_slots
         ]
@@ -264,7 +294,13 @@ def get_academic_configuration(
             for item in subjects
         ],
         "time_slots": [
-            {"id": item.external_id, "label": item.label, "order": item.slot_order}
+            {
+                "id": item.external_id,
+                "label": item.label,
+                "order": item.slot_order,
+                "start_time": item.start_time,
+                "end_time": item.end_time,
+            }
             for item in slots
         ],
         "teachers": [
