@@ -184,6 +184,12 @@ La vista previa acepta restricciones **opcionales** de recursos y trayectos:
 
 - `travel_minutes` en el cuerpo principal (0, 15, 30, 45 o 60).
   Predeterminado **0** para preservar configuraciones antiguas.
+- `travel_rules` en el cuerpo: hasta 100 rutas **dirigidas** con
+  `from_location_id`, `to_location_id` y `minutes`. Una ruta A→B
+  puede exigir 15 minutos y B→A exigir 30; el tiempo específico tiene
+  prioridad sobre `travel_minutes`. Los sentidos no configurados utilizan
+  el margen general. Se validan ubicaciones distintas, duraciones en
+  pasos de 15 y ausencia de rutas duplicadas para el mismo sentido.
 - `location_id` en una materia, apoyo PT/AL, grupo de apoyo o bloqueo fijo.
   Se usa únicamente para verificar traslados de un mismo profesional.
   Cuando dos actividades consecutivas tienen *ubicaciones conocidas y
@@ -201,12 +207,22 @@ La vista previa acepta restricciones **opcionales** de recursos y trayectos:
   de ubicación en actividades del mismo profesor sí.
 
 `Horario-PT-AL` incorpora en «Planificación del centro → Parámetros de
-generación global» el tiempo opcional de traslado y la sala PT/AL compartida.
+generación global» el tiempo general opcional, las rutas por sentido y la
+sala PT/AL compartida.
 Cuando se activa el traslado, los identificadores de clase se emplean como
 **ubicaciones diferenciadas de aula**, no como distancias reales. Cuando
 se indica una única sala de apoyo, **todos los apoyos y sus sesiones ya
 programadas** enviados a esta vista previa se consideran ocupantes
 exclusivos de esa sala. Sin sala configurada, no se presupone cuál utilizan.
+
+Las salas se resuelven por prioridad desde Horario-PT-AL:
+**aula de la sesión existente > sala del grupo PT/AL > sala habitual del
+profesional > sala global**. Grupos virtuales con distintas salas obligatorias
+no se combinan automáticamente. Cada sala resuelta se transmite como
+`room_id` y como `location_id` de tipo `room:...`. Las ubicaciones de
+clase se transmiten con el prefijo `class:...` si existe un tiempo general
+o al menos una ruta específica. Solo estas ubicaciones explícitas participan
+en el cálculo de trayectos.
 
 No existe todavía optimización de rutas entre edificios, aforo de salas
 de más de una sesión ni sala individual por alumno. La propuesta es siempre
