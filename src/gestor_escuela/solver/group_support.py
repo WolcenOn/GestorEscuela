@@ -16,6 +16,7 @@ from gestor_escuela.solver.support_preferences import (
     ClassEvents,
     add_extraction_preferences,
 )
+from gestor_escuela.solver.weekly_resources import WeeklyResources
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,6 +38,8 @@ class GroupSupportDemand:
     participants: tuple[GroupParticipant, ...]
     allowed_days: tuple[int, ...] = (0, 1, 2, 3, 4)
     max_sessions_per_day: int = 2
+    location_id: str | None = None
+    room_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +70,7 @@ def add_group_supports(
     objective: MutableSequence[cp_model.LinearExpr],
     day_start: int,
     day_end: int,
+    resources: WeeklyResources,
 ) -> list[_GroupSession]:
     selections: list[_GroupSession] = []
     for index, group in enumerate(groups):
@@ -116,6 +120,12 @@ def add_group_supports(
                     f"group_teacher_{index}_{slot}_{weekday}",
                 )
                 intervals[("teacher", group.teacher_id, weekday)].append(group_interval)
+                if group.room_id:
+                    intervals[("room", group.room_id, weekday)].append(group_interval)
+                resources.add_teacher(
+                    group.teacher_id, weekday, start, duration // 15,
+                    present, group.location_id,
+                )
                 day_attendance[weekday].append(present)
 
                 for person in group.participants:
