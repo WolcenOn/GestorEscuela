@@ -110,6 +110,8 @@ class SchoolTimeSlotRow(Base):
     external_id: Mapped[str] = mapped_column(String(64), nullable=False)
     label: Mapped[str] = mapped_column(String(64), nullable=False)
     slot_order: Mapped[int] = mapped_column(Integer, nullable=False)
+    start_time: Mapped[str | None] = mapped_column(String(5), nullable=True)
+    end_time: Mapped[str | None] = mapped_column(String(5), nullable=True)
 
 
 class SchoolTeacherRow(Base):
