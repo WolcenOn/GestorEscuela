@@ -32,8 +32,16 @@ Gestor-Alimentacion es otro proyecto y no participa en esta integración.
 - [x] Rechazar duplicidades de profesor/tramo en la entrada directa al
   motor de sustituciones para evitar sobrescrituras en diccionarios.
 - [x] Añadir pruebas de actividad de especialista en dos aulas a la vez.
-- [ ] Definir franjas reales con inicio/fin y granularidad de 15 minutos,
-  con adaptación de `slot_id` legado para importaciones antiguas.
+- [x] Añadir intervalos reales opcionales `start_time/end_time` en
+  `academic-configuration`, con migración Alembic 0018 y rejilla de
+  15 minutos, hasta 180 minutos por bloque. `slot_id` legado funciona
+  sin horas inferidas.
+- [x] Rechazar solapes parciales entre actividades de un mismo docente o
+  aula (grupo), con distinción de días y sesiones adyacentes.
+- [x] El motor de sustituciones considera intervalos solapados al escoger
+  profesionales y al impedir dos coberturas coincidentes.
+- [ ] Extender el modelo más allá de bloques predefinidos: currículo semanal,
+  partición variable de materias, asignación automática de docentes/aulas.
 - [ ] Clasificar restricciones como duras o preferencias; explicar
   por qué un horario solicitado resulta incompatible.
 
@@ -106,3 +114,34 @@ Gestor-Alimentacion es otro proyecto y no participa en esta integración.
    incumpliéndola: se informa al centro y se ofrecen alternativas.
 6. Nunca se aplica una propuesta ni se reescribe el horario anterior
    hasta que el usuario la confirme expresamente.
+
+
+## Entrega de intervalos explícitos: comportamiento y límites
+
+Una franja puede declararse, por ejemplo, como:
+
+```json
+{"id": "MAT-2-90", "label": "Matemáticas 2º", "order": 2,
+ "start_time": "09:00", "end_time": "10:30"}
+```
+
+Los dos atributos temporales son opcionales **en conjunto** para preservar
+los datos heredados. Deben cumplir `HH:mm`, inicio anterior a fin, rejilla
+de 15 minutos y duración máxima de 180 minutos. Nunca se convierte
+automáticamente una etiqueta «09:00» o un número de orden en una duración.
+
+Si dos franjas explícitas se cruzan, compartir docente, grupo o sustituto
+produce un conflicto obligatorio. Si una de ellas es antigua y no tiene horas,
+solo podemos detectar el conflicto por igualdad de `slot_id`; por seguridad
+operativa conviene completar las horas antes de generar calendarios que
+mezclen duraciones distintas. Este bloque no implementa aún:
+- edición de duraciones por clase en el backend ni la partición automática
+  de las horas semanales;
+- conflictos entre alumnos de PT/AL y apoyos sin grupos explícitos;
+- desplazamientos entre centros, aulas y recursos comunes;
+- propuesta semanal integrada con duración variable (el motor semanal
+  actual continúa dedicado a sustituciones por día).
+
+La migración es **aditiva** y reversible, pero eliminar columnas de horarios
+reales con el downgrade causaría pérdida de esas horas: practicar backups y
+restauración antes de revertirla. No se ha migrado una base real desde esta rama.
