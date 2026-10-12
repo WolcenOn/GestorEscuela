@@ -51,6 +51,8 @@ class LessonDemandInput(BaseModel):
     earliest_start: str | None = Field(default=None, pattern=_CLOCK)
     latest_end: str | None = Field(default=None, pattern=_CLOCK)
     max_sessions_per_day: int = Field(default=2, ge=1, le=5)
+    location_id: str | None = Field(default=None, min_length=1, max_length=64)
+    room_id: str | None = Field(default=None, min_length=1, max_length=64)
 
     @model_validator(mode="after")
     def check_durations(self) -> LessonDemandInput:
@@ -81,6 +83,8 @@ class BusyBlockInput(BaseModel):
     teacher_id: str | None = Field(default=None, max_length=64)
     group_id: str | None = Field(default=None, max_length=64)
     pupil_token: str | None = Field(default=None, max_length=64)
+    location_id: str | None = Field(default=None, min_length=1, max_length=64)
+    room_id: str | None = Field(default=None, min_length=1, max_length=64)
 
     @model_validator(mode="after")
     def check_block(self) -> BusyBlockInput:
@@ -106,6 +110,8 @@ class SupportDemandInput(BaseModel):
     preferred_subjects: list[str] = Field(default_factory=list, max_length=30)
     allowed_days: list[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4], min_length=1)
     max_sessions_per_day: int = Field(default=2, ge=1, le=5)
+    location_id: str | None = Field(default=None, min_length=1, max_length=64)
+    room_id: str | None = Field(default=None, min_length=1, max_length=64)
 
     @model_validator(mode="after")
     def check_sessions(self) -> SupportDemandInput:
@@ -139,6 +145,8 @@ class GroupSupportInput(BaseModel):
     participants: list[GroupParticipantInput] = Field(min_length=1, max_length=8)
     allowed_days: list[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4], min_length=1)
     max_sessions_per_day: int = Field(default=2, ge=1, le=5)
+    location_id: str | None = Field(default=None, min_length=1, max_length=64)
+    room_id: str | None = Field(default=None, min_length=1, max_length=64)
 
     @model_validator(mode="after")
     def validate_group(self) -> GroupSupportInput:
@@ -165,6 +173,7 @@ class WeeklyPreviewInput(BaseModel):
     group_supports: list[GroupSupportInput] = Field(default_factory=list, max_length=50)
     busy: list[BusyBlockInput] = Field(default_factory=list, max_length=500)
     max_time_seconds: float = Field(default=5.0, gt=0, le=15)
+    travel_minutes: int = Field(default=0, ge=0, le=60, multiple_of=15)
 
     @model_validator(mode="after")
     def check_school_day(self) -> WeeklyPreviewInput:
@@ -234,6 +243,8 @@ def preview_weekly_timetable(
             earliest_start=_minute(lesson.earliest_start) if lesson.earliest_start else None,
             latest_end=_minute(lesson.latest_end) if lesson.latest_end else None,
             max_sessions_per_day=lesson.max_sessions_per_day,
+            location_id=lesson.location_id,
+            room_id=lesson.room_id,
         )
         for lesson in payload.lessons
     )
@@ -245,6 +256,8 @@ def preview_weekly_timetable(
             teacher_id=block.teacher_id,
             group_id=block.group_id,
             pupil_token=block.pupil_token,
+            location_id=block.location_id,
+            room_id=block.room_id,
         )
         for block in payload.busy
     )
@@ -262,6 +275,8 @@ def preview_weekly_timetable(
             preferred_subjects=tuple(item.preferred_subjects),
             allowed_days=tuple(item.allowed_days),
             max_sessions_per_day=item.max_sessions_per_day,
+            location_id=item.location_id,
+            room_id=item.room_id,
         )
         for item in payload.supports
     )
@@ -284,6 +299,8 @@ def preview_weekly_timetable(
             ),
             allowed_days=tuple(group.allowed_days),
             max_sessions_per_day=group.max_sessions_per_day,
+            location_id=group.location_id,
+            room_id=group.room_id,
         )
         for group in payload.group_supports
     )
@@ -296,6 +313,7 @@ def preview_weekly_timetable(
             payload.max_time_seconds,
             supports=support_needs,
             group_supports=grouped_needs,
+            travel_minutes=payload.travel_minutes,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
