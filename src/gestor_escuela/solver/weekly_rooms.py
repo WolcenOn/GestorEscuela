@@ -14,7 +14,6 @@ from ortools.sat.python import cp_model
 
 from gestor_escuela.solver.weekly_resources import WeeklyResources
 
-
 # Non-sensitive room equipment/accessibility characteristics. Never send
 # diagnoses, pupil attributes, or free-text descriptions as room requirements.
 ROOM_FEATURES = frozenset({
