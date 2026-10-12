@@ -51,13 +51,23 @@ class SchoolDayOptimizer:
         activities: tuple[Activity, ...],
         absences: tuple[Absence, ...],
         locked_substitutions: tuple[LockedSubstitution, ...] = (),
+        slot_conflicts: dict[str, frozenset[str]] | None = None,
     ) -> SolverSolution:
         # Reject invalid input rather than silently replacing one lesson in
         # the dictionary. This also applies to PT/AL and visiting specialists.
+        slot_conflicts = slot_conflicts or {}
         activities_by_teacher_slot: dict[tuple[str, str], Activity] = {}
         for activity in activities:
             key = (activity.teacher_id, activity.slot_id)
-            previous = activities_by_teacher_slot.get(key)
+            previous = next(
+                (
+                    existing
+                    for (teacher_id, slot_id), existing in activities_by_teacher_slot.items()
+                    if teacher_id == activity.teacher_id
+                    and slot_id in _overlapping_slots(activity.slot_id, slot_conflicts)
+                ),
+                None,
+            )
             if previous is not None:
                 raise ValueError(
                     f"Teacher {activity.teacher_id} is double-booked in slot "
@@ -88,6 +98,7 @@ class SchoolDayOptimizer:
                 teachers=teachers,
                 activities_by_teacher_slot=activities_by_teacher_slot,
                 absent_slots=absent_slots,
+                slot_conflicts=slot_conflicts,
             )
             candidates_by_need[need_index] = candidates
             assessments_by_need[need_index] = assessments
@@ -108,6 +119,7 @@ class SchoolDayOptimizer:
             candidates_by_need=candidates_by_need,
             assignment_vars=assignment_vars,
             locked_substitutions=locked_substitutions,
+            slot_conflicts=slot_conflicts,
         )
 
         by_teacher_slot: dict[tuple[str, str], list[cp_model.IntVar]] = defaultdict(list)
@@ -116,8 +128,14 @@ class SchoolDayOptimizer:
                 by_teacher_slot[(candidate.teacher.id, need.activity.slot_id)].append(
                     assignment_vars[(need_index, candidate.teacher.id)]
                 )
-        for variables in by_teacher_slot.values():
+        for (teacher_id, slot_id), variables in by_teacher_slot.items():
             model.add(sum(variables) <= 1)
+            for other_slot in _overlapping_slots(slot_id, slot_conflicts):
+                if other_slot <= slot_id:
+                    continue
+                other_variables = by_teacher_slot.get((teacher_id, other_slot))
+                if other_variables:
+                    model.add(sum(variables) + sum(other_variables) <= 1)
 
         solver = cp_model.CpSolver()
         solver.parameters.max_time_in_seconds = self.max_time_seconds
@@ -236,6 +254,7 @@ class SchoolDayOptimizer:
         candidates_by_need: dict[int, tuple[_Candidate, ...]],
         assignment_vars: dict[tuple[int, str], cp_model.IntVar],
         locked_substitutions: tuple[LockedSubstitution, ...],
+        slot_conflicts: dict[str, frozenset[str]],
     ) -> None:
         need_index_by_activity = {need.activity.id: index for index, need in enumerate(needs)}
         locked_activities: set[str] = set()
@@ -265,7 +284,11 @@ class SchoolDayOptimizer:
                 )
 
             teacher_slot = (locked.substitute_teacher_id, need.activity.slot_id)
-            if teacher_slot in locked_teacher_slots:
+            if any(
+                other_teacher == locked.substitute_teacher_id
+                and other_slot in _overlapping_slots(need.activity.slot_id, slot_conflicts)
+                for other_teacher, other_slot in locked_teacher_slots
+            ):
                 raise ValueError(
                     f"{locked.substitute_teacher_id} tiene dos decisiones bloqueadas en "
                     f"{need.activity.slot_id}."
@@ -280,6 +303,7 @@ class SchoolDayOptimizer:
         teachers: tuple[Teacher, ...],
         activities_by_teacher_slot: dict[tuple[str, str], Activity],
         absent_slots: set[tuple[str, str]],
+        slot_conflicts: dict[str, frozenset[str]],
     ) -> tuple[tuple[_Candidate, ...], tuple[CandidateAssessment, ...]]:
         candidates: list[_Candidate] = []
         assessments: list[CandidateAssessment] = []
@@ -301,7 +325,10 @@ class SchoolDayOptimizer:
                     )
                 )
                 continue
-            if (teacher.id, need.activity.slot_id) in absent_slots:
+            if any(
+                (teacher.id, slot_id) in absent_slots
+                for slot_id in _overlapping_slots(need.activity.slot_id, slot_conflicts)
+            ):
                 assessments.append(
                     CandidateAssessment(
                         activity_id=need.activity.id,
@@ -345,7 +372,14 @@ class SchoolDayOptimizer:
                 )
                 continue
 
-            current = activities_by_teacher_slot.get((teacher.id, need.activity.slot_id))
+            current = next(
+                (
+                    activities_by_teacher_slot[(teacher.id, slot_id)]
+                    for slot_id in sorted(_overlapping_slots(need.activity.slot_id, slot_conflicts))
+                    if (teacher.id, slot_id) in activities_by_teacher_slot
+                ),
+                None,
+            )
             if current and not self._can_displace(current):
                 assessments.append(
                     CandidateAssessment(
@@ -418,3 +452,9 @@ class SchoolDayOptimizer:
         if activity.activity_type in (ActivityType.PT, ActivityType.AL):
             penalty *= self.weights.pt_al_displacement_multiplier
         return penalty
+
+
+def _overlapping_slots(
+    slot_id: str, slot_conflicts: dict[str, frozenset[str]]
+) -> frozenset[str]:
+    return slot_conflicts.get(slot_id, frozenset()) | {slot_id}
