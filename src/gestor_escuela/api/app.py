@@ -169,6 +169,8 @@ def put_school_configuration(
                 external_id=item.id,
                 label=item.label,
                 slot_order=item.order,
+                start_time=item.start_time,
+                end_time=item.end_time,
             )
             for item in payload.time_slots
         ]
@@ -240,7 +242,13 @@ def get_school_configuration(
         "school_id": school_id,
         "groups": [{"id": item.external_id, "label": item.label} for item in groups],
         "time_slots": [
-            {"id": item.external_id, "label": item.label, "order": item.slot_order}
+            {
+                "id": item.external_id,
+                "label": item.label,
+                "order": item.slot_order,
+                "start_time": item.start_time,
+                "end_time": item.end_time,
+            }
             for item in slots
         ],
         "teachers": [
