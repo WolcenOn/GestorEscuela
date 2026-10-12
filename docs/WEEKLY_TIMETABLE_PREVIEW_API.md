@@ -228,6 +228,59 @@ No existe todavía optimización de rutas entre edificios, aforo de salas
 de más de una sesión ni sala individual por alumno. La propuesta es siempre
 informativa y no modifica configuración académica ni base de datos.
 
+### Aforo y disponibilidad por día y hora (vistas previas)
+
+La propiedad opcional `rooms` del POST admite hasta 50 salas configuradas:
+
+```json
+{
+  "rooms": [
+    {
+      "room_id": "Sala PT 1",
+      "capacity": 2,
+      "windows": [
+        {"weekday": 0, "start_time": "09:00", "end_time": "11:00"},
+        {"weekday": 2, "start_time": "10:00", "end_time": "12:00"}
+      ]
+    },
+    {
+      "room_id": "Sala de apoyo compartido",
+      "capacity": 4,
+      "windows": []
+    }
+  ]
+}
+```
+
+- `capacity` es el aforo simultáneo en **alumnos presentes**, entre 1 y 30.
+  Cada sesión PT/AL individual consume 1 plaza; un grupo utiliza tantas
+  plazas como alumnos tengan asistencia **a esa sesión**, aunque sus objetivos
+  semanales sean distintos. El motor puede permitir distintos profesionales
+  en una sala si la suma de participantes cabe en ella.
+- En una sala **sin especificación** en `rooms` se mantiene el comportamiento
+  anterior: **una única sesión simultánea**, sin contar los alumnos de dentro.
+  Esto evita invalidar los proyectos que no han indicado aforos.
+- Las clases ordinarias que reserven `room_id` ocupan toda su sala
+  configurada. Los bloqueos fijos solo con `room_id`, sin `room_units`,
+  también reservan su capacidad completa.
+- Un bloqueo fijo de una sesión PT/AL puede indicar `room_units` (1–30),
+  que representa sus asistentes reales: cuenta solamente esas plazas.
+- `windows: []` no añade límites horarios. Si se indican una o más franjas,
+  **únicamente esos días y horas están abiertos**; los días omitidos se
+  consideran cerrados. Franjas en pasos de 15 minutos, sin solapamientos,
+  dentro de la jornada de la petición. Máximo 30 por sala y 200 en total.
+- Las reservas cerradas ocupan el aforo completo. Ninguna actividad con
+  `room_id` configurado puede solaparse con un periodo de cierre, aunque
+  haya plazas libres durante la jornada abierta.
+- No se envían nombres ni identificadores reales de alumnos para calcular
+  aforos. La propuesta no se aplica ni se guarda.
+
+En Horario-PT-AL se configuran los aforos y horarios en **Centro →
+Planificación del centro → Parámetros de generación global**, con una línea
+`Sala | 4` para mantenerla disponible toda la jornada, o varias líneas
+`Sala | 4 | lunes | 09:00 | 12:00` para su disponibilidad concreta.
+Las salas que no se enumeran siguen teniendo uso exclusivo.
+
 ## Límites explícitos antes de producción
 
 1. **No** distribuye por sí solo la carga curricular a distintas duraciones:
