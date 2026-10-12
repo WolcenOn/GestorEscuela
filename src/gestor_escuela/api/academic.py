@@ -113,7 +113,10 @@ def _validate_configuration(payload: SchoolConfigurationPut) -> None:
                     )
             teacher_agenda[teacher_key].append((activity.id, activity.slot_id))
 
-            if activity.group_id is not None:
+            # PT/AL may legitimately overlap a regular class for a subset
+            # of pupils. Group exclusivity applies only to whole-class lessons;
+            # student-level PT/AL clashes need individual attendance data.
+            if activity.group_id is not None and activity.activity_type is ActivityType.CLASS:
                 group_key = (weekday, activity.group_id)
                 for previous_id, previous_slot in group_agenda[group_key]:
                     if slots_overlap(previous_slot, activity.slot_id):
