@@ -17,7 +17,7 @@ from gestor_escuela.solver.support_preferences import (
     add_extraction_preferences,
 )
 from gestor_escuela.solver.weekly_resources import WeeklyResources
-from gestor_escuela.solver.weekly_rooms import WeeklyRooms
+from gestor_escuela.solver.weekly_rooms import WeeklyRooms, allocate_candidate_room
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,6 +41,7 @@ class GroupSupportDemand:
     max_sessions_per_day: int = 2
     location_id: str | None = None
     room_id: str | None = None
+    room_candidates: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,6 +52,7 @@ class PlacedGroupSupport:
     start: int
     end: int
     participant_tokens: tuple[str, ...]
+    room_id: str | None = None
 
 
 @dataclass(slots=True)
@@ -60,6 +62,7 @@ class _GroupSession:
     start: cp_model.IntVar
     days: dict[int, cp_model.IntVar]
     attendees: dict[str, cp_model.IntVar]
+    room_choices: dict[str, cp_model.IntVar]
 
 
 def add_group_supports(
@@ -128,10 +131,11 @@ def add_group_supports(
                 intervals[("teacher", group.teacher_id, weekday)].append(group_interval)
                 if group.room_id:
                     rooms.reserve(group.room_id, weekday, group_interval, attendance_count)
-                resources.add_teacher(
-                    group.teacher_id, weekday, start, duration // 15,
-                    present, group.location_id,
-                )
+                if not group.room_candidates:
+                    resources.add_teacher(
+                        group.teacher_id, weekday, start, duration // 15,
+                        present, group.location_id,
+                    )
                 day_attendance[weekday].append(present)
 
                 for person in group.participants:
@@ -162,7 +166,17 @@ def add_group_supports(
                         f"group_pref_{index}_{slot}_{person.pupil_token}_{weekday}",
                     )
             model.add_exactly_one(days.values())
-            selections.append(_GroupSession(group, duration, start, days, attendees))
+            chosen = (
+                allocate_candidate_room(
+                    model, rooms, resources, group.teacher_id,
+                    days, start, duration // 15, group.room_candidates,
+                    attendance_count, f"group_{index}_{slot}",
+                )
+                if group.room_candidates else {}
+            )
+            selections.append(
+                _GroupSession(group, duration, start, days, attendees, chosen)
+            )
             objective.append(start - day_start // 15)
 
         # The pupil with the largest target necessarily attends all group
@@ -189,10 +203,17 @@ def extract_group_supports(
         attending = tuple(
             pupil for pupil, selected in item.attendees.items() if solver.value(selected)
         )
+        selected_room = next(
+            (
+                room_id for room_id, chosen in item.room_choices.items()
+                if solver.value(chosen)
+            ),
+            item.request.room_id,
+        )
         placed.append(
             PlacedGroupSupport(
                 item.request.request_id, item.request.service, weekday, start,
-                start + item.duration, attending,
+                start + item.duration, attending, selected_room,
             )
         )
     return tuple(sorted(placed, key=lambda item: (item.weekday, item.start, item.request_id)))
