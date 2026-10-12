@@ -9,7 +9,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from gestor_escuela.api.auth import AdminDep, SessionDep, ViewerDep
+from gestor_escuela.api.auth import AdminDep, PlannerDep, SessionDep
 from gestor_escuela.persistence.models import SchoolGroupRow, SchoolRow
 from gestor_escuela.persistence.roster_models import SchoolStudentRow, SchoolStudentSupportRow
 
@@ -124,7 +124,9 @@ def put_roster(
 def get_roster(
     school_id: UUID,
     session: SessionDep,
-    _: ViewerDep,
+    # This endpoint returns identified pupils and PT/AL support notes.
+    # Read-only users require a separately scoped, redacted representation.
+    _: PlannerDep,
 ) -> dict[str, object]:
     _require_school(school_id, session)
     students = session.scalars(
