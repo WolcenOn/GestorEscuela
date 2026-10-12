@@ -73,6 +73,7 @@ class SupportDemand:
     location_id: str | None = None
     room_id: str | None = None
     room_candidates: tuple[str, ...] = ()
+    required_features: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,6 +130,35 @@ def solve_weekly_timetable(
     model = cp_model.CpModel()
     resources = WeeklyResources()
     rooms = WeeklyRooms()
+
+    # Equipment restrictions are hard: a missing feature must not be
+    # "optimized away". This check is independent of when sessions start.
+    room_catalog = {spec.room_id: spec for spec in room_specs}
+    required_needs: tuple[SupportDemand | GroupSupportDemand, ...] = (
+        *supports, *group_supports,
+    )
+    for need in required_needs:
+        if not need.required_features:
+            continue
+        if need.room_candidates:
+            if any(
+                set(need.required_features).issubset(room_catalog[room_id].features)
+                for room_id in need.room_candidates if room_id in room_catalog
+            ):
+                continue
+            return TimetablePreview(
+                "infeasible",
+                reasons=("No hay salas candidatas que cumplan el equipamiento requerido.",),
+            )
+        if need.room_id is None or need.room_id not in room_catalog:
+            raise ValueError(
+                "Un apoyo requiere equipamiento, pero su sala no está configurada."
+            )
+        if not set(need.required_features).issubset(room_catalog[need.room_id].features):
+            return TimetablePreview(
+                "infeasible",
+                reasons=("La sala fija del apoyo carece del equipamiento requerido.",),
+            )
     intervals: dict[tuple[str, str, int], list[cp_model.IntervalVar]] = defaultdict(list)
     daily_demands: dict[tuple[int, int], list[cp_model.IntVar]] = defaultdict(list)
     decisions: list[tuple[LessonDemand, int, cp_model.IntVar, dict[int, cp_model.IntVar]]] = []
@@ -253,7 +283,13 @@ def solve_weekly_timetable(
                 allocate_candidate_room(
                     model, rooms, resources, support.teacher_id,
                     by_day, start_var, duration // 15,
-                    support.room_candidates, 1, f"single_{index}_{session_index}",
+                    tuple(
+                        room_id for room_id in support.room_candidates
+                        if set(support.required_features).issubset(
+                            room_catalog[room_id].features
+                        )
+                    ),
+                    1, f"single_{index}_{session_index}",
                 )
                 if support.room_candidates else {}
             )
@@ -268,7 +304,7 @@ def solve_weekly_timetable(
     grouped = add_group_supports(
         model, group_supports, intervals, class_intervals,
         class_events, soft_terms, start, end,
-        resources, rooms,
+        resources, rooms, room_catalog,
     )
 
     for index, block in enumerate(busy):
