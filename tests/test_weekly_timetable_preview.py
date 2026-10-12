@@ -501,3 +501,148 @@ def test_preview_api_returns_concrete_reasons_for_teacher_overload(
     assert any("Profesional P1" in reason for reason in data["reasons"])
     assert data["preview_only"] is True
     assert client.get(f"/schools/{school_id}/day-plans").json() == []
+
+
+def test_specialist_needs_fifteen_minutes_to_change_classrooms() -> None:
+    lessons = (
+        LessonDemand(
+            "1A", "MAT", "P-ITINERANT", 45, (45,),
+            allowed_days=(0,), location_id="classroom-1A",
+        ),
+        LessonDemand(
+            "1B", "MAT", "P-ITINERANT", 45, (45,),
+            allowed_days=(0,), location_id="classroom-1B",
+        ),
+    )
+    no_travel = solve_weekly_timetable(lessons, (), 540, 630)
+    assert no_travel.status == "feasible"
+    with_travel = solve_weekly_timetable(
+        lessons, (), 540, 630, travel_minutes=15,
+    )
+    assert with_travel.status == "infeasible"
+    enough_time = solve_weekly_timetable(
+        lessons, (), 540, 645, travel_minutes=15,
+    )
+    assert enough_time.status == "feasible"
+    first, second = sorted(enough_time.lessons, key=lambda item: item.start)
+    assert second.start - first.end >= 15
+
+
+def test_travel_gap_is_not_charged_within_the_same_explicit_location() -> None:
+    lessons = (
+        LessonDemand(
+            "1A", "MAT", "P-ITINERANT", 45, (45,),
+            allowed_days=(0,), location_id="building-A",
+        ),
+        LessonDemand(
+            "1B", "MAT", "P-ITINERANT", 45, (45,),
+            allowed_days=(0,), location_id="building-A",
+        ),
+    )
+    result = solve_weekly_timetable(
+        lessons, (), 540, 630, travel_minutes=15,
+    )
+    assert result.status == "feasible"
+
+
+def test_shared_support_room_cannot_host_two_professionals_at_once() -> None:
+    lessons = (
+        LessonDemand("1A", "MAT", "CLASS-1", 45, (45,), allowed_days=(0,)),
+        LessonDemand("1B", "MAT", "CLASS-2", 45, (45,), allowed_days=(0,)),
+    )
+    needs = (
+        SupportDemand(
+            "pt-one", "PT", "PT-TEACHER", "pupil-1", "1A",
+            45, (45,), allowed_days=(0,), room_id="SalaApoyo",
+        ),
+        SupportDemand(
+            "al-two", "AL", "AL-TEACHER", "pupil-2", "1B",
+            45, (45,), allowed_days=(0,), room_id="SalaApoyo",
+        ),
+    )
+    blocked = solve_weekly_timetable(
+        lessons, (), 540, 585, supports=needs,
+    )
+    assert blocked.status == "infeasible"
+    available = solve_weekly_timetable(
+        lessons, (), 540, 630, supports=needs,
+    )
+    assert available.status == "feasible"
+    first, second = sorted(available.supports, key=lambda item: item.start)
+    assert second.start >= first.end
+
+
+def test_fixed_room_reservation_prevents_shared_support() -> None:
+    lesson = LessonDemand("1A", "MAT", "CLASS", 45, (45,), allowed_days=(0,))
+    support = SupportDemand(
+        "pt", "PT", "P-PT", "token-1", "1A", 45, (45,),
+        allowed_days=(0,), room_id="PT_ROOM",
+    )
+    busy = (BusyInterval(0, 540, 585, room_id="PT_ROOM"),)
+    result = solve_weekly_timetable(
+        (lesson,), busy, 540, 585, supports=(support,),
+    )
+    assert result.status == "infeasible"
+
+
+def test_travel_gap_applies_to_existing_fixed_teacher_block() -> None:
+    lesson = LessonDemand(
+        "1B", "MAT", "ITINERANT", 45, (45,),
+        allowed_days=(0,), location_id="building-b",
+    )
+    busy = (
+        BusyInterval(
+            0, 540, 585, teacher_id="ITINERANT", location_id="building-a",
+        ),
+    )
+    result = solve_weekly_timetable(
+        (lesson,), busy, 540, 630, travel_minutes=15,
+    )
+    assert result.status == "infeasible"
+    possible = solve_weekly_timetable(
+        (lesson,), busy, 540, 645, travel_minutes=15,
+    )
+    assert possible.status == "feasible"
+    assert possible.lessons[0].start == 600
+
+
+def test_shared_group_support_room_respects_other_support_booking() -> None:
+    lesson = LessonDemand("1A", "MAT", "CLASS", 45, (45,), allowed_days=(0,))
+    group = GroupSupportDemand(
+        "group", "PT", "P-PT", 45,
+        (GroupParticipant("opaque-1", "1A", 45),),
+        allowed_days=(0,), room_id="SALA",
+    )
+    individual = SupportDemand(
+        "al", "AL", "P-AL", "opaque-2", "1A", 45, (45,),
+        allowed_days=(0,), room_id="SALA",
+    )
+    impossible = solve_weekly_timetable(
+        (lesson,), (), 540, 585,
+        supports=(individual,), group_supports=(group,),
+    )
+    assert impossible.status == "infeasible"
+
+
+def test_api_rejects_invalid_travel_and_accepts_room_only_blocks(client: TestClient) -> None:
+    school_id = client.post("/schools", json={"name": "CEIP Recursos"}).json()["id"]
+    payload = _payload()
+    payload["travel_minutes"] = 10
+    invalid = client.post(
+        f"/schools/{school_id}/weekly-timetable/preview", json=payload
+    )
+    assert invalid.status_code == 422
+
+    payload["travel_minutes"] = 15
+    payload["lessons"][0]["location_id"] = "classroom-a"
+    payload["lessons"][1]["location_id"] = "classroom-b"
+    payload["busy"] = [{
+        "weekday": 0, "start_time": "09:00", "end_time": "09:45",
+        "room_id": "PT_ROOM",
+    }]
+    valid = client.post(
+        f"/schools/{school_id}/weekly-timetable/preview", json=payload
+    )
+    assert valid.status_code == 200
+    assert valid.json()["preview_only"] is True
+    assert client.get(f"/schools/{school_id}/day-plans").json() == []
