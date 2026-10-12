@@ -18,6 +18,7 @@ from gestor_escuela.api.plan_insights import router as plan_insights_router
 from gestor_escuela.api.roster import router as roster_router
 from gestor_escuela.api.security import MaxRequestBodyMiddleware, SecurityHeadersMiddleware
 from gestor_escuela.api.staffing import router as staffing_router
+from gestor_escuela.api.weekly_timetable import router as weekly_timetable_router
 
 _STATIC_DIR = Path(__file__).with_name("static")
 _UI_FILE = _STATIC_DIR / "index.html"
@@ -63,6 +64,7 @@ app.include_router(operations_router)
 app.include_router(plan_insights_router)
 app.include_router(roster_router)
 app.include_router(staffing_router)
+app.include_router(weekly_timetable_router)
 
 
 @app.get("/", include_in_schema=False)
