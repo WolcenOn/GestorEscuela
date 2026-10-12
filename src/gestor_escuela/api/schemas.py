@@ -4,7 +4,7 @@ from datetime import date, datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from gestor_escuela.domain.models import ActivityType, Priority, TeacherProfile
 
@@ -67,6 +67,24 @@ class TimeSlotConfig(BaseModel):
     id: str = Field(min_length=1, max_length=64)
     label: str = Field(min_length=1, max_length=64)
     order: int = Field(ge=1)
+    # Legacy slots may keep both times unset until the school configures them.
+    start_time: str | None = Field(default=None, pattern=r"^(?:[01]\\d|2[0-3]):[0-5]\\d$")
+    end_time: str | None = Field(default=None, pattern=r"^(?:[01]\\d|2[0-3]):[0-5]\\d$")
+
+    @model_validator(mode="after")
+    def validate_interval(self) -> TimeSlotConfig:
+        if (self.start_time is None) != (self.end_time is None):
+            raise ValueError("Both start_time and end_time are required for a timed slot")
+        if self.start_time is not None and self.end_time is not None:
+            if self.start_time >= self.end_time:
+                raise ValueError("end_time must be after start_time")
+            start_hour, start_minute = map(int, self.start_time.split(":"))
+            end_hour, end_minute = map(int, self.end_time.split(":"))
+            if start_minute % 15 or end_minute % 15:
+                raise ValueError("Slot times must align to the 15-minute grid")
+            if ((end_hour * 60 + end_minute) - (start_hour * 60 + start_minute)) > 180:
+                raise ValueError("A slot cannot exceed 180 minutes")
+        return self
 
 
 class TeacherConfig(BaseModel):
