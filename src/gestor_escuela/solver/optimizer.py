@@ -52,7 +52,18 @@ class SchoolDayOptimizer:
         absences: tuple[Absence, ...],
         locked_substitutions: tuple[LockedSubstitution, ...] = (),
     ) -> SolverSolution:
-        activities_by_teacher_slot = {(a.teacher_id, a.slot_id): a for a in activities}
+        # Reject invalid input rather than silently replacing one lesson in
+        # the dictionary. This also applies to PT/AL and visiting specialists.
+        activities_by_teacher_slot: dict[tuple[str, str], Activity] = {}
+        for activity in activities:
+            key = (activity.teacher_id, activity.slot_id)
+            previous = activities_by_teacher_slot.get(key)
+            if previous is not None:
+                raise ValueError(
+                    f"Teacher {activity.teacher_id} is double-booked in slot "
+                    f"{activity.slot_id}: {previous.id} and {activity.id}"
+                )
+            activities_by_teacher_slot[key] = activity
         absent_slots = {
             (absence.teacher_id, slot_id)
             for absence in absences
