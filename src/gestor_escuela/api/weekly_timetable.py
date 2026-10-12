@@ -117,6 +117,7 @@ class SupportDemandInput(BaseModel):
     max_sessions_per_day: int = Field(default=2, ge=1, le=5)
     location_id: str | None = Field(default=None, min_length=1, max_length=64)
     room_id: str | None = Field(default=None, min_length=1, max_length=64)
+    room_candidates: list[str] = Field(default_factory=list, max_length=8)
 
     @model_validator(mode="after")
     def check_sessions(self) -> SupportDemandInput:
@@ -152,6 +153,7 @@ class GroupSupportInput(BaseModel):
     max_sessions_per_day: int = Field(default=2, ge=1, le=5)
     location_id: str | None = Field(default=None, min_length=1, max_length=64)
     room_id: str | None = Field(default=None, min_length=1, max_length=64)
+    room_candidates: list[str] = Field(default_factory=list, max_length=8)
 
     @model_validator(mode="after")
     def validate_group(self) -> GroupSupportInput:
@@ -241,6 +243,17 @@ class WeeklyPreviewInput(BaseModel):
             raise ValueError("No se puede repetir una ruta con igual sentido")
         if len({room.room_id for room in self.rooms}) != len(self.rooms):
             raise ValueError("No se puede repetir una sala configurada")
+        defined_rooms = {room.room_id for room in self.rooms}
+        for need in [*self.supports, *self.group_supports]:
+            if len(set(need.room_candidates)) != len(need.room_candidates):
+                raise ValueError("Las salas candidatas de un apoyo no pueden repetirse")
+            if need.room_candidates and (
+                need.room_id or need.location_id
+                or any(not room or room not in defined_rooms for room in need.room_candidates)
+            ):
+                raise ValueError(
+                    "Las salas candidatas requieren aforo conocido y ninguna sala fija"
+                )
         if sum(len(room.windows) for room in self.rooms) > 200:
             raise ValueError("Solo se permiten 200 franjas de disponibilidad de salas")
         if any(
@@ -348,6 +361,7 @@ def preview_weekly_timetable(
             max_sessions_per_day=item.max_sessions_per_day,
             location_id=item.location_id,
             room_id=item.room_id,
+            room_candidates=tuple(item.room_candidates),
         )
         for item in payload.supports
     )
@@ -372,6 +386,7 @@ def preview_weekly_timetable(
             max_sessions_per_day=group.max_sessions_per_day,
             location_id=group.location_id,
             room_id=group.room_id,
+            room_candidates=tuple(group.room_candidates),
         )
         for group in payload.group_supports
     )
@@ -442,6 +457,7 @@ def preview_weekly_timetable(
                 "start_time": _clock(item.start),
                 "end_time": _clock(item.end),
                 "participant_count": len(item.participant_tokens),
+                "room_id": item.room_id,
             }
             for item in result.group_supports
         ],
@@ -452,6 +468,7 @@ def preview_weekly_timetable(
                 "weekday": item.weekday,
                 "start_time": _clock(item.start),
                 "end_time": _clock(item.end),
+                "room_id": item.room_id,
             }
             for item in result.supports
         ],
