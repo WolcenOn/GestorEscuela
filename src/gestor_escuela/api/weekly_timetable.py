@@ -88,8 +88,8 @@ class BusyBlockInput(BaseModel):
 
     @model_validator(mode="after")
     def check_block(self) -> BusyBlockInput:
-        if not self.teacher_id and not self.group_id and not self.pupil_token:
-            raise ValueError("Indica docente, grupo o alumno anónimo para el bloqueo")
+        if not any((self.teacher_id, self.group_id, self.pupil_token, self.room_id)):
+            raise ValueError("Indica docente, grupo, alumno anónimo o sala para el bloqueo")
         if self.end_time <= self.start_time:
             raise ValueError("El bloqueo debe acabar después de empezar")
         if _minute(self.start_time) % 15 or _minute(self.end_time) % 15:
