@@ -17,6 +17,7 @@ from gestor_escuela.solver.support_preferences import (
     add_extraction_preferences,
 )
 from gestor_escuela.solver.weekly_resources import WeeklyResources
+from gestor_escuela.solver.weekly_rooms import WeeklyRooms
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,6 +72,7 @@ def add_group_supports(
     day_start: int,
     day_end: int,
     resources: WeeklyResources,
+    rooms: WeeklyRooms,
 ) -> list[_GroupSession]:
     selections: list[_GroupSession] = []
     for index, group in enumerate(groups):
@@ -112,6 +114,10 @@ def add_group_supports(
                 attendees[person.pupil_token] = attendee
                 pupil_attendance[person.pupil_token].append(attendee)
 
+            attendance_count = model.new_int_var(
+                1, len(group.participants), f"group_count_{index}_{slot}"
+            )
+            model.add(attendance_count == sum(attendees.values()))
             for weekday in group.allowed_days:
                 present = model.new_bool_var(f"group_day_{index}_{slot}_{weekday}")
                 days[weekday] = present
@@ -121,7 +127,7 @@ def add_group_supports(
                 )
                 intervals[("teacher", group.teacher_id, weekday)].append(group_interval)
                 if group.room_id:
-                    intervals[("room", group.room_id, weekday)].append(group_interval)
+                    rooms.reserve(group.room_id, weekday, group_interval, attendance_count)
                 resources.add_teacher(
                     group.teacher_id, weekday, start, duration // 15,
                     present, group.location_id,
