@@ -12,6 +12,14 @@ from dataclasses import dataclass
 
 from ortools.sat.python import cp_model
 
+from gestor_escuela.solver.group_support import (
+    GroupSupportDemand,
+    PlacedGroupSupport,
+    add_group_supports,
+    extract_group_supports,
+)
+from gestor_escuela.solver.support_preferences import add_extraction_preferences
+
 
 @dataclass(frozen=True, slots=True)
 class LessonDemand:
@@ -47,6 +55,8 @@ class SupportDemand:
     weekly_minutes: int
     durations: tuple[int, ...]
     blocked_subjects: tuple[str, ...] = ()
+    avoided_subjects: tuple[str, ...] = ()
+    preferred_subjects: tuple[str, ...] = ()
     allowed_days: tuple[int, ...] = (0, 1, 2, 3, 4)
     max_sessions_per_day: int = 2
 
@@ -80,6 +90,7 @@ class TimetablePreview:
     wall_time_seconds: float = 0.0
     reasons: tuple[str, ...] = ()
     supports: tuple[PlacedSupport, ...] = ()
+    group_supports: tuple[PlacedGroupSupport, ...] = ()
 
 
 def solve_weekly_timetable(
@@ -89,6 +100,7 @@ def solve_weekly_timetable(
     end: int,
     max_time_seconds: float = 5.0,
     supports: tuple[SupportDemand, ...] = (),
+    group_supports: tuple[GroupSupportDemand, ...] = (),
 ) -> TimetablePreview:
     """Place explicit durations exactly; never invent a remainder or miss minutes."""
     if start >= end or any(value % 15 for value in (start, end)):
@@ -102,6 +114,9 @@ def solve_weekly_timetable(
     decisions: list[tuple[LessonDemand, int, cp_model.IntVar, dict[int, cp_model.IntVar]]] = []
     soft_terms: list[cp_model.LinearExpr] = []
     class_intervals: dict[tuple[str, str, int], list[cp_model.IntervalVar]] = defaultdict(list)
+    class_events: dict[
+        tuple[str, str, int], list[tuple[cp_model.IntVar, int, cp_model.IntVar]]
+    ] = defaultdict(list)
     support_choices: list[
         tuple[SupportDemand, int, cp_model.IntVar, dict[int, cp_model.IntVar]]
     ] = []
@@ -139,6 +154,9 @@ def solve_weekly_timetable(
                 intervals[("teacher", demand.teacher_id, weekday)].append(interval)
                 intervals[("group", demand.group_id, weekday)].append(interval)
                 class_intervals[(demand.group_id, demand.subject_id, weekday)].append(interval)
+                class_events[(demand.group_id, demand.subject_id, weekday)].append(
+                    (start_var, duration_ticks, present)
+                )
                 daily_demands[(index, weekday)].append(present)
                 days[weekday] = present
                 if demand.preferred_days and weekday not in demand.preferred_days:
@@ -186,6 +204,13 @@ def solve_weekly_timetable(
                         (support.group_id, subject, weekday), ()
                     ):
                         model.add_no_overlap([interval, class_interval])
+                add_extraction_preferences(
+                    model, start_var, start_var + duration // 15, present,
+                    support.group_id, weekday,
+                    support.avoided_subjects, support.preferred_subjects,
+                    class_events, soft_terms,
+                    f"single_pref_{index}_{session_index}_{weekday}",
+                )
                 by_day[weekday] = present
             model.add_exactly_one(by_day.values())
             support_choices.append((support, duration, start_var, by_day))
@@ -195,6 +220,11 @@ def solve_weekly_timetable(
                 sum(daily_demands[(len(demands) + index, weekday)])
                 <= support.max_sessions_per_day
             )
+
+    grouped = add_group_supports(
+        model, group_supports, intervals, class_intervals,
+        class_events, soft_terms, start, end,
+    )
 
     for index, block in enumerate(busy):
         if block.start >= block.end:
@@ -259,4 +289,5 @@ def solve_weekly_timetable(
     return TimetablePreview(
         "feasible", tuple(lessons), name, solver.wall_time,
         supports=tuple(placed_support),
+        group_supports=extract_group_supports(solver, grouped),
     )
