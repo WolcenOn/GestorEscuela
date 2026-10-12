@@ -19,6 +19,7 @@ from gestor_escuela.solver.group_support import (
     GroupSupportDemand,
 )
 from gestor_escuela.solver.weekly_diagnostics import explain_weekly_infeasible
+from gestor_escuela.solver.weekly_resources import TravelRule
 from gestor_escuela.solver.weekly_timetable import (
     BusyInterval,
     LessonDemand,
@@ -165,6 +166,18 @@ class GroupSupportInput(BaseModel):
         return self
 
 
+class TravelRuleInput(BaseModel):
+    from_location_id: str = Field(min_length=1, max_length=64)
+    to_location_id: str = Field(min_length=1, max_length=64)
+    minutes: int = Field(ge=0, le=60, multiple_of=15)
+
+    @model_validator(mode="after")
+    def check_locations(self) -> TravelRuleInput:
+        if self.from_location_id == self.to_location_id:
+            raise ValueError("Las ubicaciones de una ruta deben ser distintas")
+        return self
+
+
 class WeeklyPreviewInput(BaseModel):
     start_time: str = Field(pattern=_CLOCK)
     end_time: str = Field(pattern=_CLOCK)
@@ -174,11 +187,17 @@ class WeeklyPreviewInput(BaseModel):
     busy: list[BusyBlockInput] = Field(default_factory=list, max_length=500)
     max_time_seconds: float = Field(default=5.0, gt=0, le=15)
     travel_minutes: int = Field(default=0, ge=0, le=60, multiple_of=15)
+    travel_rules: list[TravelRuleInput] = Field(default_factory=list, max_length=100)
 
     @model_validator(mode="after")
     def check_school_day(self) -> WeeklyPreviewInput:
         if self.end_time <= self.start_time:
             raise ValueError("La jornada debe terminar después de comenzar")
+        route_keys = [
+            (rule.from_location_id, rule.to_location_id) for rule in self.travel_rules
+        ]
+        if len(set(route_keys)) != len(route_keys):
+            raise ValueError("No se puede repetir una ruta con igual sentido")
         if _minute(self.start_time) % 15 or _minute(self.end_time) % 15:
             raise ValueError("La jornada debe respetar la rejilla de 15 minutos")
         total_sessions = (
@@ -314,6 +333,10 @@ def preview_weekly_timetable(
             supports=support_needs,
             group_supports=grouped_needs,
             travel_minutes=payload.travel_minutes,
+            travel_rules=tuple(
+                TravelRule(rule.from_location_id, rule.to_location_id, rule.minutes)
+                for rule in payload.travel_rules
+            ),
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
