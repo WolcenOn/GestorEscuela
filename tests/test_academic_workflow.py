@@ -306,3 +306,31 @@ def test_academic_solver_does_not_use_busy_overlapping_specialist(
     substitutions = result.json()["payload"]["solution"]["substitutions"]
     assert len(substitutions) == 1
     assert substitutions[0]["substitute_teacher_id"] == "P03"
+
+
+def test_pt_al_may_extract_pupils_during_ordinary_class(
+    client: TestClient,
+) -> None:
+    school = client.post("/schools", json={"name": "CEIP Apoyo compatible"})
+    assert school.status_code == 201
+    payload = configuration()
+    payload["time_slots"][0].update({"start_time": "09:00", "end_time": "09:45"})
+    payload["activities"][1].update(
+        {
+            "weekday": 0,
+            "slot_id": "S1",
+            "group_id": "G1",
+            "activity_type": "PT",
+            "subject_id": None,
+        }
+    )
+    saved = client.put(
+        f"/schools/{school.json()['id']}/academic-configuration",
+        json=payload,
+    )
+    assert saved.status_code == 200
+    read = client.get(
+        f"/schools/{school.json()['id']}/academic-configuration"
+    )
+    assert read.status_code == 200
+    assert len(read.json()["activities"]) == 2
