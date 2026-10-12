@@ -18,6 +18,7 @@ from gestor_escuela.solver.group_support import (
     GroupParticipant,
     GroupSupportDemand,
 )
+from gestor_escuela.solver.weekly_diagnostics import explain_weekly_infeasible
 from gestor_escuela.solver.weekly_timetable import (
     BusyInterval,
     LessonDemand,
@@ -299,6 +300,15 @@ def preview_weekly_timetable(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    reasons = result.reasons
+    if result.status == "infeasible":
+        concrete = explain_weekly_infeasible(
+            requirements, support_needs, grouped_needs, busy,
+            _minute(payload.start_time), _minute(payload.end_time),
+        )
+        if concrete:
+            reasons = concrete
+
     return {
         "status": result.status,
         "solver_status": result.solver_status,
@@ -315,7 +325,7 @@ def preview_weekly_timetable(
             }
             for item in result.lessons
         ],
-        "reasons": list(result.reasons),
+        "reasons": list(reasons),
         "group_supports": [
             {
                 "request_id": item.request_id,
