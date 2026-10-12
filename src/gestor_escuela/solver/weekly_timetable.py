@@ -19,7 +19,7 @@ from gestor_escuela.solver.group_support import (
     extract_group_supports,
 )
 from gestor_escuela.solver.support_preferences import add_extraction_preferences
-from gestor_escuela.solver.weekly_resources import WeeklyResources
+from gestor_escuela.solver.weekly_resources import TravelRule, WeeklyResources
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,6 +109,7 @@ def solve_weekly_timetable(
     supports: tuple[SupportDemand, ...] = (),
     group_supports: tuple[GroupSupportDemand, ...] = (),
     travel_minutes: int = 0,
+    travel_rules: tuple[TravelRule, ...] = (),
 ) -> TimetablePreview:
     """Place explicit durations exactly; never invent a remainder or miss minutes."""
     if start >= end or any(value % 15 for value in (start, end)):
@@ -274,7 +275,7 @@ def solve_weekly_timetable(
         if len(entries) > 1:
             model.add_no_overlap(entries)
 
-    resources.constrain_travel(model, travel_minutes)
+    resources.constrain_travel(model, travel_minutes, travel_rules)
 
     if soft_terms:
         model.minimize(sum(soft_terms))
