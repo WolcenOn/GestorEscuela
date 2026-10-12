@@ -80,6 +80,58 @@ Los bloqueos de profesor se aplican también a sesiones PT/AL existentes.
 Los de grupo se reservan para la actividad que ocupa la clase completa
 (p. ej. recreo), no para una extracción parcial PT/AL.
 
+## Apoyos PT/AL compartidos en grupos ya existentes
+
+Nueva propiedad opcional `group_supports` del mismo POST. No busca nuevos
+grupos automáticamente: el frontend utiliza grupos de apoyo que el centro
+ya ha definido y calcula el déficit individual descontando sesiones previas.
+
+```json
+{
+  "request_id": "group-support-1",
+  "service": "PT",
+  "teacher_id": "teacher-pt",
+  "session_minutes": 45,
+  "participants": [
+    {
+      "pupil_token": "token-aleatorio-de-esta-peticion-a",
+      "group_id": "1A",
+      "weekly_minutes": 90,
+      "blocked_subjects": ["Lengua"],
+      "avoided_subjects": ["Matemáticas"],
+      "preferred_subjects": []
+    },
+    {
+      "pupil_token": "token-aleatorio-de-esta-peticion-b",
+      "group_id": "1A",
+      "weekly_minutes": 45,
+      "blocked_subjects": [],
+      "avoided_subjects": [],
+      "preferred_subjects": ["Matemáticas"]
+    }
+  ],
+  "allowed_days": [0, 1, 2, 3, 4],
+  "max_sessions_per_day": 2
+}
+```
+
+Se proponen dos sesiones PT de 45 minutos: el primer alumno participa en
+ambas y el segundo solo en una. **No se le atribuyen 90 minutos al segundo.**
+Los asistentes pueden variar por sesión y no se devuelve su identidad:
+`group_supports` en la respuesta indica franja, servicio y número de
+participantes, pero **nunca** los tokens anónimos.
+
+Para cada alumno, `blocked_subjects` impide extraer de esa asignatura,
+`avoided_subjects` penaliza coincidencias y `preferred_subjects` las
+premia. Ninguna preferencia blanda puede saltarse una prohibición o un
+solapamiento de alumnado/profesor.
+
+El piloto admite 8 participantes por solicitud grupal, objetivos divisibles
+entre la duración común, máximo 20 sesiones por grupo y 150 sesiones en la
+propuesta total. Grupos que no cumplen estas condiciones siguen pendientes
+de ajuste manual. Las sesiones existentes se descuentan por alumno,
+considerando `excludedStudentIds` en la configuración local.
+
 ## Límites explícitos antes de producción
 
 1. **No** distribuye por sí solo la carga curricular a distintas duraciones:
@@ -89,9 +141,11 @@ Los de grupo se reservan para la actividad que ocupa la clase completa
    objetivo de minutos y exista profesor compatible. Descuenta los minutos
    ya programados y respeta bloqueos explícitos `no-salir` y materias
    cuya extracción esté prohibida. **No** genera todavía sesiones
-   agrupadas con participantes mixtos, calcula tolerancias de exceso,
-   ni optimiza las preferencias blandas por materia ("evitar" frente
-   a "preferente"). Cuando omite necesidades grupales debe avisar.
+   de formación **automática de nuevos grupos**, divisiones arbitrarias
+   entre distintos tamaños de sesión o tolerancias de exceso. Sí se optimizan
+   las preferencias blandas de extracción por materia para los grupos
+   ya configurados cuando cumplen las condiciones del piloto. Cuando se omiten
+   necesidades incompatibles se debe avisar.
 3. **No** resuelve la planificación de actividades del centro que aún no
    tienen franja concreta, ni recursos compartidos, desplazamientos o
    reuniones/funciones sin asignación temporal. El frontend sí puede enviar
