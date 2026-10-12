@@ -33,6 +33,7 @@ from gestor_escuela.persistence.models import (
     SchoolTimeSlotRow,
 )
 from gestor_escuela.solver.flexible_specialty import FlexibleSpecialtySchoolDayOptimizer
+from gestor_escuela.solver.slot_intervals import build_slot_conflicts
 
 router = APIRouter()
 
@@ -465,12 +466,19 @@ def solve_academic_day_plan(
         for item in request.locked_substitutions
     )
     teachers, activities = _solver_inputs(school_id, plan.plan_date, session)
+    slots = session.scalars(
+        select(SchoolTimeSlotRow).where(SchoolTimeSlotRow.school_id == school_id)
+    ).all()
+    slot_conflicts = build_slot_conflicts(
+        (slot.external_id, slot.start_time, slot.end_time) for slot in slots
+    )
     try:
         solution = FlexibleSpecialtySchoolDayOptimizer().solve(
             teachers=teachers,
             activities=activities,
             absences=absences,
             locked_substitutions=locked,
+            slot_conflicts=slot_conflicts,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
