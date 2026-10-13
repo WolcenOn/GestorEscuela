@@ -105,7 +105,8 @@ class FlexibleSpecialtySchoolDayOptimizer(SchoolDayOptimizer):
                         status=CandidateStatus.REJECTED,
                         rejection_reason=CandidateRejectionReason.MISSING_SPECIALTY,
                         detail=(
-                            f"La actividad requiere la especialidad {', '.join(missing_specialties)} y el "
+                            f"La actividad requiere la especialidad "
+                            f"{', '.join(missing_specialties)} y el "
                             "docente no la tiene."
                         ),
                     )
