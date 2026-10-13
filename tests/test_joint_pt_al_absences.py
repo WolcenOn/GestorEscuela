@@ -23,6 +23,7 @@ from gestor_escuela.domain.models import (
 from gestor_escuela.persistence.db import Base, get_session
 from gestor_escuela.solver.flexible_specialty import FlexibleSpecialtySchoolDayOptimizer
 
+
 def t(teacher_id: str, specialty: str | None = None, groups: tuple[str, ...] = ()) -> Teacher:
     return Teacher(
         teacher_id,
