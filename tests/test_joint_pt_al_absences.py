@@ -11,8 +11,13 @@ from sqlalchemy.pool import StaticPool
 
 from gestor_escuela.api.app import app
 from gestor_escuela.domain.models import (
-    Absence, Activity, ActivityType, CandidateRejectionReason, Priority,
-    Teacher, TeacherProfile,
+    Absence,
+    Activity,
+    ActivityType,
+    CandidateRejectionReason,
+    Priority,
+    Teacher,
+    TeacherProfile,
 )
 from gestor_escuela.persistence.db import Base, get_session
 from gestor_escuela.solver.flexible_specialty import FlexibleSpecialtySchoolDayOptimizer
