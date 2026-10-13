@@ -85,7 +85,16 @@ class Activity:
 
     @property
     def requires_group_coverage(self) -> bool:
-        return self.group_id is not None and self.activity_type == ActivityType.CLASS
+        """Legacy name: whether an absence generates a coverage demand.
+
+        PT/AL sessions are actual support needs even with no class group:
+        mixed-class pupils have no single group_id. Recess, coordination,
+        and blocking SUPPORT activities are never replacement demands.
+        """
+        return (
+            (self.activity_type == ActivityType.CLASS and self.group_id is not None)
+            or self.activity_type in (ActivityType.PT, ActivityType.AL)
+        )
 
 
 @dataclass(frozen=True, slots=True)

@@ -308,8 +308,9 @@ class SchoolDayOptimizer:
         candidates: list[_Candidate] = []
         assessments: list[CandidateAssessment] = []
         group_id = need.activity.group_id
-        if group_id is None:
+        if group_id is None and need.activity.activity_type == ActivityType.CLASS:
             return (), ()
+        assessment_group = group_id or ""
 
         for teacher in teachers:
             if teacher.id == need.absent_teacher_id:
@@ -317,7 +318,7 @@ class SchoolDayOptimizer:
                     CandidateAssessment(
                         activity_id=need.activity.id,
                         slot_id=need.activity.slot_id,
-                        group_id=group_id,
+                        group_id=assessment_group,
                         teacher_id=teacher.id,
                         status=CandidateStatus.REJECTED,
                         rejection_reason=CandidateRejectionReason.ABSENT_TEACHER,
@@ -333,7 +334,7 @@ class SchoolDayOptimizer:
                     CandidateAssessment(
                         activity_id=need.activity.id,
                         slot_id=need.activity.slot_id,
-                        group_id=group_id,
+                        group_id=assessment_group,
                         teacher_id=teacher.id,
                         status=CandidateStatus.REJECTED,
                         rejection_reason=CandidateRejectionReason.ABSENT_IN_SLOT,
@@ -341,12 +342,12 @@ class SchoolDayOptimizer:
                     )
                 )
                 continue
-            if group_id not in teacher.can_cover_groups:
+            if group_id is not None and group_id not in teacher.can_cover_groups:
                 assessments.append(
                     CandidateAssessment(
                         activity_id=need.activity.id,
                         slot_id=need.activity.slot_id,
-                        group_id=group_id,
+                        group_id=assessment_group,
                         teacher_id=teacher.id,
                         status=CandidateStatus.REJECTED,
                         rejection_reason=CandidateRejectionReason.INCOMPATIBLE_GROUP,
@@ -354,18 +355,23 @@ class SchoolDayOptimizer:
                     )
                 )
                 continue
-            required_specialty = need.activity.required_specialty
-            if required_specialty is not None and required_specialty not in teacher.specialties:
+            required_specialties = set()
+            if need.activity.required_specialty:
+                required_specialties.add(need.activity.required_specialty)
+            if need.activity.activity_type in (ActivityType.PT, ActivityType.AL):
+                required_specialties.add(need.activity.activity_type.value)
+            missing = sorted(required_specialties - teacher.specialties)
+            if missing:
                 assessments.append(
                     CandidateAssessment(
                         activity_id=need.activity.id,
                         slot_id=need.activity.slot_id,
-                        group_id=group_id,
+                        group_id=assessment_group,
                         teacher_id=teacher.id,
                         status=CandidateStatus.REJECTED,
                         rejection_reason=CandidateRejectionReason.MISSING_SPECIALTY,
                         detail=(
-                            f"La actividad requiere la especialidad {required_specialty} y el "
+                            f"La actividad requiere la especialidad {', '.join(missing)} y el "
                             "docente no la tiene."
                         ),
                     )
@@ -385,7 +391,7 @@ class SchoolDayOptimizer:
                     CandidateAssessment(
                         activity_id=need.activity.id,
                         slot_id=need.activity.slot_id,
-                        group_id=group_id,
+                        group_id=assessment_group,
                         teacher_id=teacher.id,
                         status=CandidateStatus.REJECTED,
                         displaced_activity_id=current.id,
@@ -420,7 +426,7 @@ class SchoolDayOptimizer:
                 CandidateAssessment(
                     activity_id=need.activity.id,
                     slot_id=need.activity.slot_id,
-                    group_id=group_id,
+                    group_id=assessment_group,
                     teacher_id=teacher.id,
                     status=CandidateStatus.VALID_ALTERNATIVE,
                     penalty=penalty,
