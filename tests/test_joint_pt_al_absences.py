@@ -1,4 +1,5 @@
 """Joint daily PT/AL absence regression tests (no pupil identity or deployment)."""
+
 from __future__ import annotations
 
 from collections.abc import Generator
