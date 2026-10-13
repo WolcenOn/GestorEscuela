@@ -18,7 +18,7 @@ from gestor_escuela.solver.group_support import (
     GroupParticipant,
     GroupSupportDemand,
 )
-from gestor_escuela.solver.weekly_diagnostics import diagnose_weekly_infeasible
+from gestor_escuela.solver.weekly_diagnostics import WeeklyDiagnostic, diagnose_weekly_infeasible
 from gestor_escuela.solver.weekly_resources import TravelRule
 from gestor_escuela.solver.weekly_rooms import (
     ROOM_FEATURES,
@@ -445,7 +445,7 @@ def preview_weekly_timetable(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     reasons = result.reasons
-    diagnostics = ()
+    diagnostics: tuple[WeeklyDiagnostic, ...] = ()
     if result.status == "infeasible":
         diagnostics = diagnose_weekly_infeasible(
             requirements, support_needs, grouped_needs, busy,
