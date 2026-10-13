@@ -18,7 +18,7 @@ from gestor_escuela.solver.group_support import (
     GroupParticipant,
     GroupSupportDemand,
 )
-from gestor_escuela.solver.weekly_diagnostics import explain_weekly_infeasible
+from gestor_escuela.solver.weekly_diagnostics import diagnose_weekly_infeasible
 from gestor_escuela.solver.weekly_resources import TravelRule
 from gestor_escuela.solver.weekly_rooms import (
     ROOM_FEATURES,
@@ -445,13 +445,14 @@ def preview_weekly_timetable(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     reasons = result.reasons
+    diagnostics = ()
     if result.status == "infeasible":
-        concrete = explain_weekly_infeasible(
+        diagnostics = diagnose_weekly_infeasible(
             requirements, support_needs, grouped_needs, busy,
             _minute(payload.start_time), _minute(payload.end_time),
         )
-        if concrete:
-            reasons = concrete
+        if diagnostics:
+            reasons = tuple(item.message for item in diagnostics)
 
     return {
         "status": result.status,
@@ -470,6 +471,11 @@ def preview_weekly_timetable(
             for item in result.lessons
         ],
         "reasons": list(reasons),
+        # Additive contract: old clients can continue reading "reasons" only.
+        # Codes are generated from proven constraints, never from pupil tokens.
+        "diagnostics": [
+            {"code": item.code, "message": item.message} for item in diagnostics
+        ],
         "group_supports": [
             {
                 "request_id": item.request_id,

@@ -7,6 +7,7 @@ include pupil tokens, health data or speculation about the solver's decisions.
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import dataclass
 
 from gestor_escuela.solver.group_support import GroupSupportDemand
 from gestor_escuela.solver.weekly_timetable import (
@@ -45,15 +46,23 @@ def _available_minutes(
     return total
 
 
-def explain_weekly_infeasible(
+@dataclass(frozen=True, slots=True)
+class WeeklyDiagnostic:
+    """Stable machine code paired with a proven, human-readable explanation."""
+
+    code: str
+    message: str
+
+
+def diagnose_weekly_infeasible(
     lessons: tuple[LessonDemand, ...],
     supports: tuple[SupportDemand, ...],
     groups: tuple[GroupSupportDemand, ...],
     busy: tuple[BusyInterval, ...],
     start: int,
     end: int,
-) -> tuple[str, ...]:
-    reasons: list[str] = []
+) -> tuple[WeeklyDiagnostic, ...]:
+    diagnostics: list[WeeklyDiagnostic] = []
 
     # A single subject cannot fit if its declared windows and fixed class or
     # specialist unavailability leave fewer minutes than its required total.
@@ -72,11 +81,14 @@ def explain_weekly_infeasible(
         )
         available = min(teacher_free, group_free)
         if lesson.weekly_minutes > available:
-            reasons.append(
-                f"{lesson.group_id} / {lesson.subject_id}: requiere "
-                f"{lesson.weekly_minutes} min, pero hay como máximo "
-                f"{available} min disponibles en los días y franjas permitidos."
-            )
+            diagnostics.append(WeeklyDiagnostic(
+                code="LESSON_WINDOW_CAPACITY",
+                message=(
+                    f"{lesson.group_id} / {lesson.subject_id}: requiere "
+                    f"{lesson.weekly_minutes} min, pero hay como máximo "
+                    f"{available} min disponibles en los días y franjas permitidos."
+                ),
+            ))
 
     # Teacher demand is at least all class minutes plus one full group
     # session per allocated block, regardless of how many pupils attend.
@@ -95,10 +107,13 @@ def explain_weekly_infeasible(
             busy, "teacher_id", teacher_id, (0, 1, 2, 3, 4), start, end
         )
         if required > available:
-            reasons.append(
-                f"Profesional {teacher_id}: tiene {required} min de docencia "
-                f"y apoyos, pero solo {available} min libres en la semana."
-            )
+            diagnostics.append(WeeklyDiagnostic(
+                code="TEACHER_WEEKLY_CAPACITY",
+                message=(
+                    f"Profesional {teacher_id}: tiene {required} min de docencia "
+                    f"y apoyos, pero solo {available} min libres en la semana."
+                ),
+            ))
 
     class_load: dict[str, int] = defaultdict(int)
     for lesson in lessons:
@@ -108,10 +123,13 @@ def explain_weekly_infeasible(
             busy, "group_id", class_id, (0, 1, 2, 3, 4), start, end
         )
         if required > available:
-            reasons.append(
-                f"Clase {class_id}: requiere {required} min de materias "
-                f"ordinarias, pero solo dispone de {available} min libres."
-            )
+            diagnostics.append(WeeklyDiagnostic(
+                code="CLASS_WEEKLY_CAPACITY",
+                message=(
+                    f"Clase {class_id}: requiere {required} min de materias "
+                    f"ordinarias, pero solo dispone de {available} min libres."
+                ),
+            ))
 
     # Already-fixed teacher or whole-class blocks overlapping are themselves
     # impossible to satisfy. Do not inspect/report private pupil tokens.
@@ -130,11 +148,32 @@ def explain_weekly_infeasible(
         latest_end = -1
         for block_start, block_end in entries:
             if block_start < latest_end:
-                reasons.append(
-                    f"Los bloqueos fijos de {kind} {resource} se solapan "
-                    f"el día {weekday + 1}; revisa esas asignaciones."
-                )
+                diagnostics.append(WeeklyDiagnostic(
+                    code=(
+                        "FIXED_TEACHER_OVERLAP"
+                        if kind == "profesional" else "FIXED_CLASS_OVERLAP"
+                    ),
+                    message=(
+                        f"Los bloqueos fijos de {kind} {resource} se solapan "
+                        f"el día {weekday + 1}; revisa esas asignaciones."
+                    ),
+                ))
                 break
             latest_end = max(latest_end, block_end)
 
-    return tuple(reasons[:8])
+    return tuple(diagnostics[:8])
+
+
+def explain_weekly_infeasible(
+    lessons: tuple[LessonDemand, ...],
+    supports: tuple[SupportDemand, ...],
+    groups: tuple[GroupSupportDemand, ...],
+    busy: tuple[BusyInterval, ...],
+    start: int,
+    end: int,
+) -> tuple[str, ...]:
+    """Backward-compatible free-text explanations (same order, maximum eight)."""
+    return tuple(
+        item.message
+        for item in diagnose_weekly_infeasible(lessons, supports, groups, busy, start, end)
+    )

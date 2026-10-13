@@ -10,7 +10,10 @@ from sqlalchemy.pool import StaticPool
 
 from gestor_escuela.persistence.db import Base, get_session
 from gestor_escuela.solver.group_support import GroupParticipant, GroupSupportDemand
-from gestor_escuela.solver.weekly_diagnostics import explain_weekly_infeasible
+from gestor_escuela.solver.weekly_diagnostics import (
+    diagnose_weekly_infeasible,
+    explain_weekly_infeasible,
+)
 from gestor_escuela.solver.weekly_resources import TravelRule
 from gestor_escuela.solver.weekly_rooms import RoomSpec, RoomWindow
 from gestor_escuela.solver.weekly_timetable import (
@@ -133,6 +136,7 @@ def test_planner_can_preview_but_cannot_persist_any_day_plan(client: TestClient)
     data = result.json()
     assert data["status"] == "feasible"
     assert data["preview_only"] is True
+    assert data["diagnostics"] == []
     assert len(data["lessons"]) == 4
     assert client.get(f"/schools/{school_id}/day-plans").json() == []
 
@@ -465,7 +469,12 @@ def test_diagnostics_show_overloaded_specialist_capacity_without_pupils() -> Non
     reasons = explain_weekly_infeasible(lessons, (), (), busy, 540, 720)
     assert any("1A / MAT" in reason and "105 min" in reason for reason in reasons)
     assert any("Profesional P-SPECIAL" in reason for reason in reasons)
-    assert "pupil_token" not in str(reasons)
+    diagnostics = diagnose_weekly_infeasible(lessons, (), (), busy, 540, 720)
+    assert [item.message for item in diagnostics] == list(reasons)
+    assert [item.code for item in diagnostics] == [
+        "LESSON_WINDOW_CAPACITY", "TEACHER_WEEKLY_CAPACITY",
+    ]
+    assert "pupil_token" not in str(diagnostics)
 
 
 def test_diagnostics_flag_overlapping_existing_specialist_blocks() -> None:
@@ -478,6 +487,8 @@ def test_diagnostics_flag_overlapping_existing_specialist_blocks() -> None:
     assert result.status == "infeasible"
     reasons = explain_weekly_infeasible(lessons, (), (), busy, 540, 660)
     assert any("bloqueos fijos" in reason and "P1" in reason for reason in reasons)
+    diagnostics = diagnose_weekly_infeasible(lessons, (), (), busy, 540, 660)
+    assert any(item.code == "FIXED_TEACHER_OVERLAP" for item in diagnostics)
 
 
 def test_preview_api_returns_concrete_reasons_for_teacher_overload(
@@ -501,6 +512,11 @@ def test_preview_api_returns_concrete_reasons_for_teacher_overload(
     data = response.json()
     assert data["status"] == "infeasible"
     assert any("Profesional P1" in reason for reason in data["reasons"])
+    assert any(
+        item["code"] == "TEACHER_WEEKLY_CAPACITY"
+        for item in data["diagnostics"]
+    )
+    assert [item["message"] for item in data["diagnostics"]] == data["reasons"]
     assert data["preview_only"] is True
     assert client.get(f"/schools/{school_id}/day-plans").json() == []
 
@@ -1085,3 +1101,23 @@ def test_api_uses_allowed_room_tags_without_pupil_health_information(
     assert client.post(uri, json=payload).status_code == 422
     payload["rooms"][1]["features"] = ["material_logopedico", "material_logopedico"]
     assert client.post(uri, json=payload).status_code == 422
+
+
+def test_weekly_diagnostic_codes_are_safe_and_distinguish_class_overlap() -> None:
+    lessons = (LessonDemand("1A", "MAT", "T1", 45, (45,), allowed_days=(0,)),)
+    busy = (
+        BusyInterval(0, 540, 585, group_id="1A"),
+        BusyInterval(0, 555, 600, group_id="1A", pupil_token="secret-pupil"),
+    )
+    diagnostics = diagnose_weekly_infeasible(lessons, (), (), busy, 540, 615)
+    assert any(item.code == "FIXED_CLASS_OVERLAP" for item in diagnostics)
+    assert all(item.code.isupper() for item in diagnostics)
+    assert "secret-pupil" not in repr(diagnostics)
+    assert "pupil_token" not in repr(diagnostics)
+
+
+def test_weekly_diagnostics_do_not_invent_cause_when_no_capacity_is_exceeded() -> None:
+    lessons = (LessonDemand("1A", "MAT", "T1", 45, (45,), allowed_days=(0,)),)
+    diagnostics = diagnose_weekly_infeasible(lessons, (), (), (), 540, 630)
+    assert diagnostics == ()
+    assert explain_weekly_infeasible(lessons, (), (), (), 540, 630) == ()
