@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Generator, Iterator
 from contextlib import contextmanager
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
