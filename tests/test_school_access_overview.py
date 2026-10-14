@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Generator
+from collections.abc import Generator, Iterator
 from contextlib import contextmanager
-from typing import Iterator
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine

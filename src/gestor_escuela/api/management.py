@@ -119,7 +119,9 @@ def school_access_overview(
     legacy invitation tokens can be viewed by the issuing administrator.
     """
     if actor.user_id != current.user.id:
-        raise HTTPException(status_code=403, detail="Bearer identity must match school administrator")
+        raise HTTPException(
+            status_code=403, detail="Bearer identity must match school administrator"
+        )
     _require_school(school_id, session)
     members = session.execute(
         select(SchoolMembershipRow, UserRow)
@@ -136,7 +138,10 @@ def school_access_overview(
     def invitation_status(row: SchoolInvitationRow) -> str:
         if row.accepted_at is not None:
             return "accepted"
-        expires = row.expires_at.replace(tzinfo=UTC) if row.expires_at.tzinfo is None else row.expires_at
+        expires = (
+            row.expires_at.replace(tzinfo=UTC)
+            if row.expires_at.tzinfo is None else row.expires_at
+        )
         return "expired" if expires <= now else "pending"
     return {
         "school_id":str(school_id),
