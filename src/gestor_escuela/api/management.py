@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
@@ -7,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from gestor_escuela.api.auth import AdminDep, PlannerDep, SessionDep
+from gestor_escuela.api.password_auth import CurrentAuthDep
 from gestor_escuela.api.schemas import (
     DayPlanCreateScoped,
     DayPlanRead,
@@ -16,6 +18,7 @@ from gestor_escuela.api.schemas import (
     UserRead,
 )
 from gestor_escuela.persistence.audit_models import AuditLogRow
+from gestor_escuela.persistence.auth_models import SchoolInvitationRow, UserCredentialRow
 from gestor_escuela.persistence.models import (
     DayPlanRow,
     SchoolMembershipRow,
@@ -100,6 +103,64 @@ def list_school_memberships(
         .order_by(SchoolMembershipRow.created_at, SchoolMembershipRow.id)
     )
     return list(session.scalars(statement).all())
+
+
+
+@router.get("/schools/{school_id}/access-overview")
+def school_access_overview(
+    school_id: UUID,
+    session: SessionDep,
+    actor: AdminDep,
+    current: CurrentAuthDep,
+) -> dict[str, object]:
+    """Admin-only, authenticated directory. Never expose invitation tokens.
+
+    An invitation's acceptance does not by itself attest mailbox ownership:
+    legacy invitation tokens can be viewed by the issuing administrator.
+    """
+    if actor.user_id != current.user.id:
+        raise HTTPException(status_code=403, detail="Bearer identity must match school administrator")
+    _require_school(school_id, session)
+    members = session.execute(
+        select(SchoolMembershipRow, UserRow)
+        .join(UserRow, UserRow.id == SchoolMembershipRow.user_id)
+        .where(SchoolMembershipRow.school_id == school_id)
+        .order_by(UserRow.display_name, UserRow.id)
+    ).all()
+    invitations = session.scalars(
+        select(SchoolInvitationRow)
+        .where(SchoolInvitationRow.school_id == school_id)
+        .order_by(SchoolInvitationRow.created_at.desc(), SchoolInvitationRow.id.desc())
+    ).all()
+    now = datetime.now(UTC)
+    def invitation_status(row: SchoolInvitationRow) -> str:
+        if row.accepted_at is not None:
+            return "accepted"
+        expires = row.expires_at.replace(tzinfo=UTC) if row.expires_at.tzinfo is None else row.expires_at
+        return "expired" if expires <= now else "pending"
+    return {
+        "school_id":str(school_id),
+        "members":[{
+            "user_id":str(user.id),
+            "name":user.display_name,
+            "email":user.email,
+            "role":membership.role,
+            "access_status":"account_active" if (
+                (credential := session.get(UserCredentialRow, user.id)) is not None
+                and credential.is_active
+            ) else "no_active_password",
+            "email_verified":False,
+        } for membership,user in members],
+        "invitations":[{
+            "id":str(row.id),
+            "email":row.email,
+            "role":row.role,
+            "status":invitation_status(row),
+            "expires_at":row.expires_at.isoformat(),
+            "email_verified":False,
+        } for row in invitations],
+        "mailbox_verification_available":False,
+    }
 
 
 @router.get("/schools/{school_id}/audit-log")

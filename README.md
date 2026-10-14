@@ -103,6 +103,24 @@ GET    /auth/audit-log
 
 La recuperación de contraseña devuelve siempre la misma respuesta para correos existentes o inexistentes. Los tokens son aleatorios, se guardan únicamente hasheados, caducan y solo pueden usarse una vez. El envío requiere SMTP configurado en producción.
 
+### Directorio administrativo de acceso (rama de integración)
+
+`GET /schools/{school_id}/access-overview` permite exclusivamente a
+`ADMIN`, con una **sesión Bearer real**, consultar los usuarios
+y las invitaciones del centro. Expone nombre, correo, rol y estado
+resumido de cuenta/invitación; **nunca tokens, hashes o contraseñas**,
+ni usuarios de otros centros. No otorga nuevos permisos y no crea
+invitaciones. `email_verified=false` expresa que esta versión **no
+prueba posesión del buzón**: los enlaces de invitación actuales pueden
+ser conocidos por el administrador.
+
+`VIEWER` puede leer configuración y planes de centro y **no debe
+asignarse a docentes como «solo mi horario»**. Se necesita un rol
+DOCENTE separado, un vínculo autorizado cuenta↔ficha, y una ruta
+de lectura del horario publicado aislada de los endpoints generales.
+Por ahora no hay dominio de correo configurado ni alta de docentes
+activada con verificación real.
+
 ## Roles y aislamiento
 
 Los roles son:
