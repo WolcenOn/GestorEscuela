@@ -20,6 +20,9 @@ profundidad y evaluación organizativa/jurídica antes de utilizar datos reales.
 - [x] Lectura del snapshot JSON completo: solo ADMIN/PLANNER. VIEWER obtiene 403.
 - [x] Lectura de matrícula identificada, incluyendo observaciones PT/AL: solo ADMIN/PLANNER.
 - [x] Regresión de roles con tokens Bearer e invitaciones: VIEWER no descarga esos payloads.
+- [x] Denegar por defecto `X-Actor-Id` aun con UUID de un ADMIN válido cuando
+      `ALLOW_LEGACY_ROLE_BOOTSTRAP=false`; probar lectura, escritura y prioridad
+      de Bearer. El modo heredado solo opera con activación expresa de migración.
 - [ ] Auditar todos los endpoints que devuelven datos libres o identificativos:
       configuración académica, operativa diaria, sustituciones, informes y exportaciones.
 - [ ] Inventariar columnas SQL, JSON/JSONB, contenido temporal, logs, copias, archivos

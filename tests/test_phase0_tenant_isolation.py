@@ -199,3 +199,49 @@ def test_bearer_identity_cannot_cross_school_boundaries(
         assert own_context.status_code == 200
         assert own_context.json()["school_id"] == school_a_id
         assert own_context.json()["role"] == "ADMIN"
+
+
+def test_legacy_actor_id_cannot_impersonate_a_member(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With legacy mode off, knowing an ADMIN's UUID cannot authorize any request."""
+    monkeypatch.setenv("ALLOW_LEGACY_ROLE_BOOTSTRAP", "false")
+    with _client() as client:
+        admin = _register(
+            client, email="no-spoof@example.test", school_name="CEIP Sin suplantación"
+        )
+        school_id = admin["school"]["id"]
+        admin_id = admin["user"]["id"]
+        path = f"/schools/{school_id}"
+        for headers in (
+            {"X-Actor-Id": admin_id},
+            {"X-Actor-Id": admin_id, "X-Actor-Role": "ADMIN"},
+            {"X-Actor-Id": admin_id, "X-Actor-Role": "VIEWER"},
+        ):
+            denied_read = client.get(f"{path}/configuration", headers=headers)
+            assert denied_read.status_code == 401
+            assert denied_read.json()["detail"] == "Legacy actor headers are disabled"
+
+            denied_write = client.put(
+                f"{path}/memberships",
+                headers=headers,
+                json={"user_id": admin_id, "role": "VIEWER"},
+            )
+            assert denied_write.status_code == 401
+
+        # A real Bearer session continues to win over client-supplied legacy headers.
+        valid = client.get(
+            f"{path}/auth/context",
+            headers={**_bearer(admin), "X-Actor-Id": str(uuid4()), "X-Actor-Role": "VIEWER"},
+        )
+        assert valid.status_code == 200
+        assert valid.json()["role"] == "ADMIN"
+        assert valid.json()["user_id"] == admin_id
+
+        # An invalid token must never fall back to a forged legacy identity.
+        invalid = client.get(
+            f"{path}/configuration",
+            headers={"Authorization": "Bearer invalid", "X-Actor-Id": admin_id},
+        )
+        assert invalid.status_code == 401
+        assert "invalid or expired" in invalid.json()["detail"]

@@ -118,6 +118,14 @@ def get_actor_context(
         return _membership_actor(request, session, school_id, user.id)
 
     if x_actor_id is not None:
+        # A user UUID is public metadata, never a credential. Only installations
+        # deliberately opting into the migration path may authenticate via
+        # legacy actor headers. Otherwise even a real ADMIN id is untrusted.
+        if not legacy_role_bootstrap_enabled():
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Legacy actor headers are disabled",
+            )
         if session.get(UserRow, x_actor_id) is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,

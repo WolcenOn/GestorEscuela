@@ -22,6 +22,11 @@ La rama de integración incluye:
 
 El mecanismo antiguo `X-Actor-Id` / `X-Actor-Role` existe únicamente para migraciones de instalaciones previas. `ALLOW_LEGACY_ROLE_BOOTSTRAP` es `false` por defecto y debe permanecer `false` en producción.
 
+Con ese modo desactivado, un `X-Actor-Id` conocido **no autentica**: el servidor
+rechaza la cabecera incluso si el UUID corresponde a un administrador existente.
+Las operaciones ordinarias requieren sesión Bearer; la compatibilidad con cabeceras
+antiguas se limita expresamente a migraciones autorizadas y probadas.
+
 ## Preparar el entorno
 
 En PowerShell:
